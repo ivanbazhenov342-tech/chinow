@@ -6,6 +6,12 @@ const root = new URL("../", import.meta.url).pathname;
 const { document, window } = parseHTML(
   await readFile(root + "index.html", "utf8"),
 );
+const createElement = document.createElement.bind(document);
+document.createElement = (tag) => {
+  const element = createElement(tag);
+  if (tag === "canvas") element.getContext = () => null;
+  return element;
+};
 const dialog = document.getElementById("overlay");
 dialog.showModal = () => {
   dialog.open = true;
@@ -88,6 +94,13 @@ let game = await runInNewContext(
   context,
 );
 context.interaction = game.interact;
+game.map();
+assert.equal(document.querySelectorAll(".map-place").length, 12);
+assert.equal(
+  [...document.querySelectorAll(".map-place")].filter((b) => b.disabled).length,
+  11,
+);
+dialog.close();
 const tick = () => new Promise((r) => setTimeout(r, 25));
 function click(text, id = "overlay-content") {
   const parent = document.getElementById(id);

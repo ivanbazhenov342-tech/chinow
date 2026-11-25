@@ -327,42 +327,6 @@ dialog::backdrop {
   background: #18372d65;
   backdrop-filter: blur(7px);
 }
-.district-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
-  margin-top: 20px;
-}
-.district-card {
-  min-height: 150px;
-  text-align: left;
-  display: flex;
-  flex-direction: column;
-  align-items: start;
-  gap: 5px;
-  padding: 20px;
-  border-color: #ccd7c9;
-  background: linear-gradient(140deg, #ecf0e3, #f9f8f0);
-  position: relative;
-}
-.district-card .cn {
-  font: 30px serif;
-  color: #55705c;
-  margin-bottom: 8px;
-}
-.district-card strong {
-  font-size: 17px;
-}
-.district-card small {
-  color: var(--muted);
-}
-.district-card.current {
-  border: 2px solid var(--jade);
-}
-.district-card:disabled {
-  opacity: 0.65;
-  background: #efeee7;
-}
 .intro-copy {
   max-width: 650px;
   color: var(--muted);
@@ -711,17 +675,6 @@ a {
   }
   .dialog-header h2 {
     font-size: 25px;
-  }
-  .district-grid {
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
-  }
-  .district-card {
-    padding: 14px;
-    min-height: 145px;
-  }
-  .district-card strong {
-    font-size: 15px;
   }
   .word-grid {
     grid-template-columns: 1fr 1fr;

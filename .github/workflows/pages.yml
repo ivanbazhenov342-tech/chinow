@@ -24,7 +24,7 @@ jobs:
       - name: Prepare static files
         run: |
           mkdir dist
-          cp -r index.html app.js world.js station.css curriculum.json audio hanzi vendor dist/
+          cp -r index.html app.js world.js station.css curriculum.json quests.json audio hanzi vendor dist/
       - uses: actions/upload-pages-artifact@v3
         with:
           name: github-pages-${{ github.run_attempt }}

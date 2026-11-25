@@ -44,7 +44,10 @@ export function createWorld(root, onVisit) {
     player,
     marker,
     route = [],
-    arrival = null;
+    arrival = null,
+    studyGroup = null,
+    studyKey = "",
+    rewardGroup = null;
   scene.add(town);
   function material(color) {
     if (!materials.has(color))
@@ -71,7 +74,7 @@ export function createWorld(root, onVisit) {
     o.scale.setScalar(r);
     return o;
   }
-  function label(text, x, y, z, id, scale = 1) {
+  function label(text, x, y, z, id, scale = 1, parent = town) {
     const canvas = document.createElement("canvas");
     canvas.width = 512;
     canvas.height = 192;
@@ -81,7 +84,7 @@ export function createWorld(root, onVisit) {
     ctx.strokeStyle = "#d4bc80";
     ctx.lineWidth = 5;
     ctx.strokeRect(9, 9, 494, 174);
-    ctx.font = "76px serif";
+    ctx.font = Math.min(76, 440 / Array.from(text).length) + "px serif";
     ctx.fillStyle = "#fff0cb";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
@@ -94,7 +97,7 @@ export function createWorld(root, onVisit) {
     );
     sprite.position.set(x, y, z);
     sprite.scale.set(3.1 * scale, 1.16 * scale, 1);
-    town.add(sprite);
+    parent.add(sprite);
     if (id) {
       sprite.userData.id = id;
       hits.push(sprite);
@@ -415,6 +418,105 @@ export function createWorld(root, onVisit) {
     wanted = 0.65,
     zoom = 1,
     zoomTarget = 1;
+  function removeProps(group) {
+    if (!group) return;
+    group.removeFromParent();
+    group.traverse((o) => {
+      if (o.geometry && o.geometry !== cube && o.geometry !== sphere)
+        o.geometry.dispose();
+      if (o.isSprite) {
+        o.material.map.dispose();
+        o.material.dispose();
+      } else if (o.material?.transparent) o.material.dispose();
+    });
+  }
+  function clearStudy() {
+    removeProps(studyGroup);
+    studyGroup = null;
+    studyKey = "";
+    hits = hits.filter((o) => o.userData.id !== "study");
+    delete places.study;
+  }
+  function studyWord(word, index) {
+    const key = index + ":" + word;
+    if (studyKey === key) return;
+    clearStudy();
+    studyKey = key;
+    route = [];
+    arrival = null;
+    const spots = [places.resident, places.friend, places.guard, places.tea];
+    const [x, z] = spots[index % spots.length];
+    places.study = [x, z];
+    studyGroup = new T.Group();
+    town.add(studyGroup);
+    // A small reading stand holds the current note in the physical scene.
+    box(x, 0.72, z + 0.6, 1.05, 0.11, 0.66, 0xa88758, studyGroup);
+    for (const side of [-1, 1])
+      box(x + side * 0.36, 0.5, z + 0.6, 0.1, 0.5, 0.1, 0x7b6746, studyGroup);
+    const page = box(x, 0.82, z + 0.6, 0.84, 0.035, 0.53, 0xf4e6c3, studyGroup);
+    page.rotation.x = -0.12;
+    box(x - 0.27, 0.85, z + 0.6, 0.045, 0.025, 0.44, 0xbca477, studyGroup);
+    for (let i = 0; i < 3; i++)
+      box(
+        x + 0.05,
+        0.86,
+        z + 0.47 + i * 0.11,
+        0.4,
+        0.02,
+        0.018,
+        0x7a805e,
+        studyGroup,
+      );
+    label(word, x, 3.1, z, "study", 0.8, studyGroup);
+    studyGroup.traverse((o) => {
+      if (o.isMesh) {
+        o.userData.id = "study";
+        hits.push(o);
+      }
+    });
+    marker.position.set(x, 0.39, z);
+    marker.visible = true;
+  }
+  function progress(count) {
+    removeProps(rewardGroup);
+    rewardGroup = new T.Group();
+    town.add(rewardGroup);
+    for (let i = 0; i < Math.min(6, count); i++) {
+      const x = -10 + i * 3.5,
+        z = 4.8;
+      mesh(
+        new T.CylinderGeometry(0.35, 0.24, 0.5, 10),
+        0xa77554,
+        x,
+        0.49,
+        z,
+        rewardGroup,
+      );
+      for (let j = 0; j < 3; j++) {
+        const flower = orb(
+          x + Math.sin(j * 2.1) * 0.2,
+          0.95 + j * 0.12,
+          z + Math.cos(j * 2.1) * 0.16,
+          0.25,
+          [0xc29076, 0xe1c272, 0x9dab78][i % 3],
+          rewardGroup,
+        );
+        flower.scale.y = 0.65;
+      }
+      box(x, 1.9, z, 0.07, 3.2, 0.07, 0x7d6f4e, rewardGroup);
+      // Completed missions gradually light the route to the festival.
+      const lamp = orb(x, 3.25, z, 0.32, 0xd69a58, rewardGroup);
+      lamp.scale.y = 1.1;
+      mesh(
+        new T.CylinderGeometry(0.14, 0.14, 0.06, 8),
+        0x684c37,
+        x,
+        3.62,
+        z,
+        rewardGroup,
+      );
+    }
+  }
   function build(index = 0) {
     scene.remove(town);
     town.traverse((o) => {
@@ -428,6 +530,10 @@ export function createWorld(root, onVisit) {
     });
     town = new T.Group();
     scene.add(town);
+    studyGroup = null;
+    studyKey = "";
+    rewardGroup = null;
+    delete places.study;
     hits = [];
     obstacles = [];
     animated = [];
@@ -539,6 +645,7 @@ export function createWorld(root, onVisit) {
     );
     mesh(new T.ConeGeometry(0.95, 0.38, 16), 0x527e9a, 0.33, 2.2, 0, friend);
     person(3, 1, 0x7e9270, "resident");
+    person(places.tea[0], places.tea[1] - 0.8, 0x94754f, "tea");
     label("茶", -4, 2.7, -6, "tea", 0.62);
     label("?", 3, 2.7, 1, "resident", 0.4);
     for (let i = 0; i < 4; i++) {
@@ -840,6 +947,9 @@ export function createWorld(root, onVisit) {
   });
   return {
     visit,
+    studyWord,
+    clearStudy,
+    progress,
     rotate: (delta) => (wanted += delta),
     zoom: (delta) =>
       (zoomTarget = T.MathUtils.clamp(zoomTarget + delta, 0.6, 1.6)),

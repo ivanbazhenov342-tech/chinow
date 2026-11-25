@@ -802,3 +802,29 @@ a {
     width: 150px;
   }
 }
+
+.context-sentence {
+  font: clamp(26px, 4vw, 36px)/1.8 serif;
+  padding: 20px;
+  background: #e8eee0;
+  border-radius: 14px;
+  margin: 18px 0;
+  overflow-wrap: anywhere;
+}
+
+#world.arriving > canvas {
+  animation: arrive-in 0.55s ease-out;
+}
+@keyframes arrive-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  #world.arriving > canvas {
+    animation: none;
+  }
+}

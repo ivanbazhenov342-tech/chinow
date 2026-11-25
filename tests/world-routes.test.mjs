@@ -64,10 +64,22 @@ for (let district = 0; district < 12; district++) {
       "Could not reach " + id + " in district " + district,
     );
   }
+  world.progress(6);
+  for (let index = 0; index < 8; index++) {
+    world.studyWord("旅行计划", index);
+    world.visit("study");
+    for (let frame = 0; frame < 400; frame++) animate();
+    assert.equal(
+      visited.pop(),
+      "study",
+      "Could not reach word " + index + " in district " + district,
+    );
+  }
+  world.clearStudy();
   world.rotate(Math.PI / 4);
   world.zoom(-0.15);
   animate();
 }
 console.log(
-  "PASS all district scene constructors, mobile camera math and 60 destinations without WebGL rendering",
+  "PASS all district scene constructors, mobile camera math and 156 destinations without WebGL rendering",
 );

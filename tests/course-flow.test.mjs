@@ -19,9 +19,11 @@ dialog.showModal = () => {
 dialog.close = () => {
   dialog.open = false;
 };
-let quiz;
+let quiz,
+  pendingData = 0;
 window.HanziWriter = {
   create: (el, c, options) => {
+    pendingData++;
     const instance = {
       cancelQuiz() {},
       animateCharacter: async () => {},
@@ -32,8 +34,12 @@ window.HanziWriter = {
     queueMicrotask(() =>
       options.charDataLoader(
         c,
-        () => {},
-        () => {},
+        () => {
+          pendingData--;
+        },
+        () => {
+          pendingData--;
+        },
       ),
     );
     return instance;
@@ -61,7 +67,7 @@ const context = {
         json: async () =>
           JSON.parse(
             await readFile(
-              root + decodeURIComponent(url.replace("./", "")),
+              root + decodeURIComponent(url.split("?")[0].replace("./", "")),
               "utf8",
             ),
           ),
@@ -72,6 +78,9 @@ const context = {
   },
   createWorld: () => ({
     highlight() {},
+    studyWord() {},
+    clearStudy() {},
+    progress() {},
     visit: (id) => context.interaction(id),
     district() {},
     rotate() {},
@@ -87,12 +96,14 @@ let source = (await readFile(root + "app.js", "utf8")).replace(
   /^import[^\n]*\n/,
   "",
 );
-let game = await runInNewContext(
-  "(async()=>{" +
-    source +
-    "\nreturn {interact,map,startLesson,lessonScreen,unlocked,lessonList,review,get state(){return state},get run(){return run},get course(){return course},get words(){return audioWords}};})()",
-  context,
-);
+const bootstrap = () =>
+  runInNewContext(
+    "(async()=>{" +
+      source +
+      "\nreturn {interact,map,startLesson,lessonScreen,unlocked,lessonList,review,get state(){return state},get run(){return run},get course(){return course},get words(){return audioWords}};})()",
+    context,
+  );
+let game = await bootstrap();
 context.interaction = game.interact;
 game.map();
 assert.equal(document.querySelectorAll(".map-place").length, 12);
@@ -101,7 +112,13 @@ assert.equal(
   11,
 );
 dialog.close();
-const tick = () => new Promise((r) => setTimeout(r, 25));
+const tick = async () => {
+  const deadline = Date.now() + 3000;
+  while (pendingData) {
+    assert.ok(Date.now() < deadline, "Handwriting data did not load");
+    await new Promise((r) => setTimeout(r, 5));
+  }
+};
 function click(text, id = "overlay-content") {
   const parent = document.getElementById(id);
   const b = [...parent.querySelectorAll("button")].find(
@@ -137,6 +154,10 @@ click("Обвести");
 await tick();
 quiz.onComplete();
 click("Написать самостоятельно");
+assert.equal(
+  document.getElementById("overlay-title").textContent,
+  "Напиши по памяти",
+);
 await tick();
 quiz.onComplete();
 click("Продолжить");
@@ -150,18 +171,41 @@ for (const l of game.course) {
   assert.ok(game.unlocked(l.district), "District not unlocked " + l.district);
   game.startLesson(l.id);
   for (let i = 0; i < l.words.length; i++) {
-    click(
+    assert.equal(game.run.stage, "explore");
+    assert.equal(
+      dialog.open,
+      false,
+      "Word discovery should happen in the city",
+    );
+    story("Подойти к записке · " + (i + 1) + "/" + l.words.length);
+    assert.equal(game.run.stage, "inspect");
+    assert.ok(
+      document.getElementById("speech").textContent.includes(l.words[i].hanzi),
+    );
+    story(
       i + 1 < l.words.length
-        ? "Запомнить и посмотреть следующее"
-        : "Встретить жителя",
+        ? "Найти следующее слово"
+        : "Слова собраны — к собеседнику",
     );
     if (l.id === 17 && i === 1) {
       const resumed = JSON.parse(stored.get("shanjiang-journey-v2"));
       assert.equal(resumed.session.run.word, 2);
-      game.startLesson(17);
+      resumed.session.run.stage = "words";
+      stored.set("shanjiang-journey-v2", JSON.stringify(resumed));
+      game = await bootstrap();
+      context.interaction = game.interact;
       assert.equal(game.run.word, 2);
+      assert.equal(game.run.stage, "explore");
+      assert.equal(dialog.open, false);
     }
   }
+  assert.equal(game.run.stage, "meet");
+  const meeting = [
+    ...document.getElementById("actions").querySelectorAll("button"),
+  ].find((b) => b.textContent.startsWith("Поговорить ·"));
+  assert.ok(meeting);
+  meeting.click();
+  assert.equal(game.run.stage, "dialogue");
   click("Помочь жителю");
   click(l.options[0]);
   click("Собрать фразу");
@@ -178,6 +222,10 @@ for (const l of game.course) {
   await tick();
   quiz.onComplete();
   click("Написать самостоятельно");
+  assert.equal(
+    document.getElementById("overlay-title").textContent,
+    "Напиши по памяти",
+  );
   await tick();
   quiz.onComplete();
   click("Продолжить");
@@ -188,6 +236,40 @@ for (const l of game.course) {
   click("Завершить миссию");
   assert.ok(game.state.completed.includes(l.id));
 }
+// Only answered words get their review dates changed, and a mistake returns later.
+context.Math = Object.assign(Object.create(Math), { random: () => 0.5 });
+const untouched = JSON.stringify(game.state.reviews["你"]);
+game.state.reviews["出口"] = { interval: 1, due: 0 };
+game.state.reviews["我"] = { interval: 1, due: 0 };
+game.review();
+let options = [...document.querySelectorAll(".options button")];
+assert.ok(options.length >= 2);
+options[1].click();
+options[0].click();
+click("Следующая записка");
+assert.ok(
+  document.querySelector(".context-sentence"),
+  "Review should use the word in a sentence",
+);
+options = [...document.querySelectorAll(".options button")];
+options[0].click();
+click("Следующая записка");
+options = [...document.querySelectorAll(".options button")];
+options[0].click();
+click("Следующая записка");
+assert.ok(
+  document
+    .getElementById("overlay-content")
+    .textContent.includes("Записки разобраны"),
+);
+assert.equal(game.state.reviews["我"].interval, 2);
+assert.equal(game.state.reviews["出口"].interval, 1);
+assert.ok(game.state.reviews["出口"].due < Date.now() + 610000);
+assert.equal(JSON.stringify(game.state.reviews["你"]), untouched);
+console.log(
+  "PASS contextual review, retry queue, due dates and legacy-session migration",
+);
+
 assert.equal(game.state.completed.length, 72);
 assert.equal(game.state.words.length >= 663, true);
 assert.equal(game.state.session, null);
@@ -213,3 +295,13 @@ console.log(
 console.log(
   "PASS " + game.words.size + " audio assets and every lesson handwriting file",
 );
+
+for (const word of ["出口", "你好", "妈", "马", "茶", "谢谢", "水"])
+  assert.ok(game.words.has(word), "First chapter needs audio for " + word);
+const sources = JSON.parse(await readFile(root + "audio/sources.json", "utf8"));
+assert.equal(
+  new Set([...sources.native, ...sources.synthetic]).size,
+  game.words.size,
+);
+assert.ok(sources.synthetic.every((word) => !sources.native.includes(word)));
+console.log("PASS first-chapter audio coverage and recording provenance");

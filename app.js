@@ -1,4 +1,4 @@
-import { createWorld } from "./world.js";
+import { createWorld } from "./world.js?v=3";
 const $ = (id) => document.getElementById(id);
 const districts = [
   [
@@ -70,6 +70,7 @@ const districts = [
   ],
 ];
 let course = [],
+  quests = [],
   audioWords = new Set(),
   world = null,
   activeDistrict = 0,
@@ -216,6 +217,9 @@ function chooseDistrict(d) {
   state.district = d;
   save();
   world?.district(d);
+  $("world").classList.remove("arriving");
+  void $("world").offsetWidth;
+  $("world").classList.add("arriving");
   $("place").textContent = districts[d][0];
   $("district-hanzi").textContent = districts[d][1];
   $("district-subtitle").textContent = districts[d][2];
@@ -475,6 +479,73 @@ const intro = [
 let introFeedback = "",
   toneListening = false,
   introTokens = [];
+function districtCompleted(d) {
+  return course.filter(
+    (l) => l.district === d && state.completed.includes(l.id),
+  ).length;
+}
+function nextMission(d) {
+  return course.find(
+    (l) => l.district === d && !state.completed.includes(l.id),
+  );
+}
+function renderQuest() {
+  const l = currentLesson,
+    q = quests[l.id],
+    actions = $("actions");
+  $("eyebrow").textContent = q.name + " · " + (l.id + 1) + " / 72";
+  $("story-title").textContent = l.title;
+  $("story-progress").style.width = (run.word / l.words.length) * 55 + "%";
+  if (run.stage === "explore" || run.stage === "inspect") {
+    const w = l.words[run.word];
+    world?.studyWord(w.hanzi, run.word);
+    world?.highlight("study");
+    if (run.stage === "explore") {
+      $("story-text").textContent =
+        q.setup + " Найди подсвеченную записку в городе.";
+      addButton(
+        actions,
+        "Подойти к записке · " + (run.word + 1) + "/" + l.words.length,
+        () => visit("study"),
+        "primary",
+      );
+    } else {
+      $("story-text").textContent =
+        "Слово " + (run.word + 1) + " из " + l.words.length + ". " + l.goal;
+      speech(w.hanzi, w.pinyin, w.ru);
+      speakButton(actions, w.hanzi);
+      if (!audioWords.has(w.hanzi))
+        $("feedback").textContent =
+          "Произношение — " + w.pinyin + ". Запись готовится.";
+      addButton(
+        actions,
+        run.word + 1 < l.words.length
+          ? "Найти следующее слово"
+          : "Слова собраны — к собеседнику",
+        () => {
+          run.word++;
+          run.stage = run.word < l.words.length ? "explore" : "meet";
+          lessonScreen();
+        },
+        "primary",
+      );
+    }
+  } else {
+    world?.clearStudy();
+    world?.highlight(q.npc);
+    $("story-progress").style.width = (run.stage === "meet" ? 60 : 85) + "%";
+    $("story-text").textContent = q.setup;
+    if (run.stage === "meet")
+      addButton(
+        actions,
+        "Поговорить · " + q.name,
+        () => visit(q.npc),
+        "primary",
+      );
+    else addButton(actions, "Продолжить разговор", lessonScreen, "primary");
+  }
+  addButton(actions, "Миссии района", () => lessonList(activeDistrict));
+}
 function renderStory() {
   $("feedback").textContent = introFeedback;
   $("speech").replaceChildren();
@@ -656,27 +727,41 @@ function renderStory() {
       );
     return;
   }
+  world?.progress(districtCompleted(activeDistrict));
+  if (currentLesson && run && currentLesson.district === activeDistrict) {
+    renderQuest();
+    return;
+  }
+  world?.clearStudy();
+  const next = nextMission(activeDistrict),
+    q = next ? quests[next.id] : null;
+  const completed = districtCompleted(activeDistrict);
   $("eyebrow").textContent =
-    (activeDistrict < 6 ? "Основы · A1" : "Повседневное общение · A2") +
+    (activeDistrict < 6 ? "Старт · A1" : "A2") +
     " · " +
     districts[activeDistrict][0];
-  const completed = course.filter(
-    (l) => l.district === activeDistrict && state.completed.includes(l.id),
-  ).length;
   $("story-progress").style.width = (completed / 6) * 100 + "%";
-  $("story-title").textContent =
-    state.intro === 12 && activeDistrict === 0
-      ? "Первая чашка — за знакомство"
-      : districts[activeDistrict][2];
-  $("story-text").textContent =
-    districts[activeDistrict][3] +
-    ". Жители ждут твоей помощи. Пройди миссии района, чтобы открыть следующую часть города.";
-  world?.highlight("resident");
-  addButton(
-    $("actions"),
-    "Миссии района · " + completed + "/6",
-    () => lessonList(activeDistrict),
-    "primary",
+  $("story-title").textContent = next ? next.title : "Район готов к празднику";
+  $("story-text").textContent = q
+    ? q.setup
+    : "Все шесть просьб выполнены. Можно вернуться к знакомым словам или продолжить путь по городу.";
+  world?.highlight(q?.npc);
+  if (next)
+    addButton(
+      $("actions"),
+      "Начать встречу · " + q.name,
+      () => startLesson(next.id),
+      "primary",
+    );
+  else if (activeDistrict < 11)
+    addButton(
+      $("actions"),
+      "Открыть " + districts[activeDistrict + 1][0],
+      () => chooseDistrict(activeDistrict + 1),
+      "primary",
+    );
+  addButton($("actions"), "Миссии района · " + completed + "/6", () =>
+    lessonList(activeDistrict),
   );
   if (state.words.length) addButton($("actions"), "Вспомнить слова", review);
   addButton($("actions"), "Карта города", map);
@@ -740,12 +825,41 @@ function nextIntro() {
     toast("Вокзал и чайная открыты. Продолжай знакомиться с городом.");
 }
 function visit(id) {
-  if (world) world.visit(id);
-  else interact(id);
+  if (world) {
+    if (world.visit(id) === false)
+      toast("Этот путь пока занят. Попробуй подойти с другой стороны.");
+  } else interact(id);
 }
 function interact(id) {
   if (activeDistrict !== 0 || state.intro === 12) {
-    lessonList(activeDistrict);
+    if (currentLesson && run && currentLesson.district === activeDistrict) {
+      const q = quests[currentLesson.id];
+      if (
+        id === "study" &&
+        (run.stage === "explore" || run.stage === "inspect")
+      ) {
+        const w = currentLesson.words[run.word];
+        run.stage = "inspect";
+        learn(w.hanzi);
+        lessonScreen();
+        if (audioWords.has(w.hanzi)) hear(w.hanzi);
+        return;
+      }
+      if (id === q.npc) {
+        if (run.stage === "meet") run.stage = "dialogue";
+        if (run.stage === "explore" || run.stage === "inspect") {
+          toast("Сначала посмотри подсвеченную записку.");
+          return;
+        }
+        lessonScreen();
+        return;
+      }
+      toast(q.name + " ждёт тебя. " + currentLesson.goal);
+      return;
+    }
+    const next = nextMission(activeDistrict);
+    if (next && id === quests[next.id].npc) startLesson(next.id);
+    else lessonList(activeDistrict);
     return;
   }
   const s = state.intro;
@@ -795,7 +909,7 @@ function lessonList(d) {
       const b = button("", () => startLesson(l.id), "lesson-row");
       b.disabled = !available;
       const text = node("span");
-      text.append(node("strong", l.title), node("small", l.goal));
+      text.append(node("strong", l.title), node("small", quests[l.id].setup));
       b.append(
         node("span", l.characters[0], "lesson-icon"),
         text,
@@ -831,13 +945,16 @@ function startLesson(id) {
     state.session?.lessonId === id
       ? state.session.run
       : {
-          stage: "words",
+          stage: "explore",
           word: 0,
           trial: 0,
           trials: [],
           selected: [],
           remaining: [],
         };
+  if (run.stage === "words") run.stage = "explore";
+  if (activeDistrict !== currentLesson.district)
+    chooseDistrict(currentLesson.district);
   lessonScreen();
 }
 function stageBody(label) {
@@ -854,49 +971,19 @@ function lessonScreen() {
   const l = currentLesson;
   state.session = { lessonId: l.id, run };
   save();
-  if (run.stage === "words") {
-    const w = l.words[run.word],
-      body = stageBody(
-        "Знакомство · " + (run.word + 1) + " / " + l.words.length,
-      );
-    body.append(
-      node("h3", l.goal),
-      node("div", w.hanzi, "vocab-large"),
-      node("div", w.pinyin, "vocab-pinyin"),
-      node("p", w.ru, "vocab-meaning"),
-    );
-    const row = node("div", undefined, "row");
-    speakButton(row, w.hanzi);
-    addButton(
-      row,
-      run.word + 1 < l.words.length
-        ? "Запомнить и посмотреть следующее"
-        : "Встретить жителя",
-      () => {
-        learn(w.hanzi);
-        run.word++;
-        if (run.word === l.words.length) run.stage = "dialogue";
-        lessonScreen();
-      },
-      "primary",
-    );
-    body.append(row);
-    if (!audioWords.has(w.hanzi))
-      body.append(
-        node(
-          "small",
-          "Произношение — " + w.pinyin + ". Запись для этого слова готовится.",
-          "notice",
-        ),
-      );
+  if (["explore", "inspect", "meet"].includes(run.stage)) {
+    closeOverlay();
+    renderStory();
+    return;
   }
   if (run.stage === "dialogue") {
     const body = stageBody("Встреча в городе");
-    body.append(node("h3", l.goal));
+    speakButton(body, "dialogue-" + l.id, "Слушать разговор");
+    body.append(node("h3", quests[l.id].name), node("p", quests[l.id].setup));
     l.dialogue.forEach((line, i) => {
       const block = node("div", undefined, "rule");
       block.append(
-        node("small", i ? "Твой ответ" : "Житель Шаньцзяна"),
+        node("small", i ? "Твой ответ" : quests[l.id].name),
         node("h3", line.hanzi),
         node("p", line.pinyin),
         node("p", line.ru),
@@ -1003,7 +1090,10 @@ function lessonScreen() {
     );
     check.disabled = run.remaining.length > 0;
   }
-  if (run.stage === "recall") recallScreen();
+  if (run.stage === "recall") {
+    recallScreen();
+    return;
+  }
   if (run.stage === "write") {
     writing(
       l.characters[0],
@@ -1117,15 +1207,14 @@ function recallScreen() {
   body.append(options, message);
 }
 function completeLesson(l) {
+  run = null;
+  currentLesson = null;
+  world?.clearStudy();
   const body = openOverlay("Миссия завершена", l.title);
   body.append(
     node("div", "印", "complete-stamp"),
     node("h3", "Ещё немного ближе к городу"),
-    node(
-      "p",
-      "Ты разобрался в диалоге, собрал свою реплику, вспомнил слова и написал знак по памяти.",
-      "intro-copy",
-    ),
+    node("p", quests[l.id].result, "intro-copy"),
   );
   const next = course[l.id + 1],
     row = node("div", undefined, "row");
@@ -1232,80 +1321,136 @@ function review() {
   const all = new Map(course.flatMap((l) => l.words).map((w) => [w.hanzi, w]));
   all.set("出口", { hanzi: "出口", pinyin: "chūkǒu", ru: "выход" });
   all.set("入口", { hanzi: "入口", pinyin: "rùkǒu", ru: "вход" });
+  const known = state.words.map((w) => all.get(w)).filter(Boolean);
   const due = Object.entries(state.reviews)
     .filter(([, r]) => r.due <= Date.now())
     .map(([word]) => all.get(word))
     .filter(Boolean);
-  const candidates = due.length
-    ? due
-    : state.words.map((w) => all.get(w)).filter(Boolean);
-  const deck = shuffled(candidates).slice(0, 10);
+  const deck = shuffled(due.length ? due : known).slice(0, 10),
+    failed = new Set();
   let index = 0;
   function step() {
-    const body = openOverlay(
-      "Возвращение к знакомым словам",
-      "Заглянуть в память",
-    );
+    const body = openOverlay("Слова в новых ситуациях", "Помочь с запиской");
     if (index === deck.length) {
-      if (!deck.length) {
-        body.append(node("p", "Сначала познакомься со словами в городе."));
-        return;
-      }
-      save();
       body.append(
-        node("h3", "Знакомые слова снова с тобой"),
-        node("p", "Повторено " + deck.length + " слов."),
+        node(
+          "h3",
+          deck.length ? "Записки разобраны" : "Пока нет знакомых слов",
+        ),
+        node(
+          "p",
+          deck.length
+            ? "Ты вспомнил слова и помог восстановить сообщения."
+            : "Начни разговор в городе, затем вернись сюда.",
+        ),
       );
       addButton(body, "В город", closeOverlay, "primary");
       return;
     }
-    const w = deck[index];
-    body.append(
-      node("small", index + 1 + " / " + deck.length),
-      node("div", w.hanzi, "vocab-large"),
-    );
-    speakButton(body, w.hanzi);
-    addButton(body, "Вспомнил — проверить", () => {
+    const w = deck[index],
+      previous = state.reviews[w.hanzi] || { interval: 1, context: 0 };
+    const contexts = course.filter((l) => l.tokens.includes(w.hanzi));
+    const context = contexts.length
+      ? contexts[(previous.context || 0) % contexts.length]
+      : null;
+    const listening = !context && index % 2 === 0 && audioWords.has(w.hanzi);
+    body.append(node("small", index + 1 + " / " + deck.length, "eyebrow"));
+    if (context) {
       body.append(
-        node("div", w.pinyin, "vocab-pinyin"),
-        node("p", w.ru, "vocab-meaning"),
+        node("h3", "Восстанови пропуск в сообщении"),
+        node("p", context.sentenceRu),
       );
-      const row = node("div", undefined, "row");
-      addButton(
-        row,
-        "Вспомнил",
-        () => {
-          const interval = Math.min(
-            30,
-            (state.reviews[w.hanzi]?.interval || 1) * 2,
-          );
+      const sentence = node(
+        "div",
+        context.tokens.map((t) => (t === w.hanzi ? "〔…〕" : t)).join(" "),
+        "context-sentence",
+      );
+      body.append(
+        sentence,
+        node(
+          "p",
+          "В пропуске слово со значением «" + w.ru + "».",
+          "writing-caption",
+        ),
+      );
+    } else if (listening) {
+      body.append(
+        node("h3", "Гость произносит знакомое слово. Что оно значит?"),
+      );
+      speakButton(body, w.hanzi, "Слушать гостя");
+    } else {
+      body.append(node("h3", "Как написать «" + w.ru + "»?"));
+    }
+    const value = (word) => (listening ? word.ru : word.hanzi);
+    const pool = known.length >= 4 ? known : [...all.values()];
+    const distractors = [
+      ...new Map(
+        pool
+          .filter((word) => word.hanzi !== w.hanzi && word.ru !== w.ru)
+          .map((word) => [value(word), word]),
+      ).values(),
+    ];
+    const choices = shuffled([w, ...shuffled(distractors).slice(0, 3)]);
+    const options = node("div", undefined, "options"),
+      message = node("p", "", "lesson-message");
+    for (const choice of choices)
+      addButton(options, value(choice), () => {
+        if (choice.hanzi !== w.hanzi) {
+          message.textContent =
+            choice.hanzi +
+            " · " +
+            choice.pinyin +
+            " — " +
+            choice.ru +
+            ". Попробуй другое слово.";
+          if (!failed.has(w.hanzi) && deck.length < 20) deck.push(w);
+          failed.add(w.hanzi);
           state.reviews[w.hanzi] = {
-            interval,
-            due: Date.now() + interval * 86400000,
+            ...previous,
+            interval: 1,
+            due: Date.now() + 600000,
           };
           save();
-          index++;
-          step();
-        },
-        "primary",
-      );
-      addButton(row, "Повторить ещё", () => {
-        if (deck.length < 20) deck.push(w);
-        state.reviews[w.hanzi] = { interval: 1, due: Date.now() + 600000 };
+          return;
+        }
+        options.querySelectorAll("button").forEach((b) => (b.disabled = true));
+        message.textContent = w.hanzi + " · " + w.pinyin + " — " + w.ru;
+        const interval = failed.has(w.hanzi)
+          ? 1
+          : Math.min(30, previous.interval * 2);
+        state.reviews[w.hanzi] = {
+          interval,
+          due:
+            Date.now() + (failed.has(w.hanzi) ? 600000 : interval * 86400000),
+          context: (previous.context || 0) + 1,
+        };
         save();
-        index++;
-        step();
+        const row = node("div", undefined, "row");
+        speakButton(row, w.hanzi);
+        addButton(
+          row,
+          "Следующая записка",
+          () => {
+            index++;
+            step();
+          },
+          "primary",
+        );
+        body.append(row);
       });
-      body.append(row);
-    });
+    body.append(options, message);
   }
   step();
 }
+
 function writing(character, onDone, title = "Путевой блокнот") {
   let mode = "watch",
     instance = null;
   function draw() {
-    const body = openOverlay(title, "Пишем «" + character + "»");
+    const body = openOverlay(
+      mode === "write" ? "Проверка письма" : title,
+      mode === "write" ? "Напиши по памяти" : "Пишем «" + character + "»",
+    );
     const generation = writingGeneration;
     const wrap = node("div", undefined, "lesson-stage");
     body.append(wrap);
@@ -1329,6 +1474,24 @@ function writing(character, onDone, title = "Путевой блокнот") {
           : "Пиши без контура, сохраняя порядок черт.",
       "writing-caption",
     );
+    if (mode === "write") {
+      const words = course.flatMap((l) => l.words);
+      const word =
+        words.find((w) => w.hanzi === character) ||
+        words.find((w) => w.hanzi.startsWith(character));
+      if (word)
+        wrap.append(
+          node(
+            "p",
+            (word.hanzi === character ? "" : "Первый знак слова ") +
+              "«" +
+              word.ru +
+              "» · " +
+              word.pinyin,
+            "writing-caption",
+          ),
+        );
+    }
     const board = node("div", undefined, "writing-board");
     board.setAttribute("aria-label", "Поле для письма " + character);
     board.setAttribute("role", "application");
@@ -1533,9 +1696,11 @@ function about() {
         written: [...new Set(data.written)],
         notes: typeof data.notes === "object" && data.notes ? data.notes : {},
       };
+      currentLesson = null;
+      run = null;
+      world?.clearStudy();
       save();
-      closeOverlay();
-      renderStory();
+      chooseDistrict(0);
       toast("Прогресс восстановлен.");
     } catch {
       toast("Файл прогресса не распознан.");
@@ -1556,10 +1721,14 @@ $("zoom-out").onclick = () => world?.zoom(0.15);
 try {
   const results = await Promise.all([
     fetch("./curriculum.json"),
-    fetch("./audio/manifest.json"),
+    fetch("./audio/manifest.json?v=3"),
+    fetch("./quests.json"),
   ]);
   if (results.some((r) => !r.ok)) throw Error("course");
-  [course, audioWords] = await Promise.all(results.map((r) => r.json()));
+  [course, audioWords, quests] = await Promise.all(
+    results.map((r) => r.json()),
+  );
+  if (quests.length !== course.length) throw Error("quest data");
   audioWords = new Set(audioWords);
   try {
     world = createWorld($("world"), interact);
@@ -1579,6 +1748,16 @@ try {
     $("place").textContent = districts[activeDistrict][0];
     $("district-hanzi").textContent = districts[activeDistrict][1];
     $("district-subtitle").textContent = districts[activeDistrict][2];
+  }
+  if (
+    state.session &&
+    Number.isInteger(state.session.lessonId) &&
+    course[state.session.lessonId] &&
+    state.session.run
+  ) {
+    currentLesson = course[state.session.lessonId];
+    run = state.session.run;
+    if (run.stage === "words") run.stage = "explore";
   }
   save();
   renderStory();

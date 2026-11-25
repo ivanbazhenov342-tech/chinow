@@ -1,4 +1,4 @@
-import { createWorld } from "./world.js?v=4";
+import { createWorld } from "./world.js?v=6";
 const $ = (id) => document.getElementById(id);
 const districts = [
   [
@@ -1667,6 +1667,8 @@ function about() {
       "Данные письма — Make Me a Hanzi, Arphic Public License",
       "./hanzi/ARPHICPL.TXT",
     ],
+    ["Фотосканированные материалы — Poly Haven, CC0", "./textures/manifest.json"],
+    ["Модели персонажей — Microsoft Rocketbox, MIT", "./models/LICENSE-Rocketbox.txt"],
     ["Three.js — MIT", "./vendor/LICENSE-three"],
     ["Hanzi Writer — MIT", "./vendor/LICENSE-hanzi-writer"],
   ];
@@ -1747,6 +1749,8 @@ try {
   audioWords = new Set(audioWords);
   try {
     world = createWorld($("world"), interact);
+    $("loading").textContent = "Загружаем город и жителей…";
+    await world.ready;
   } catch (error) {
     console.warn("3D scene unavailable", error);
     $("fallback").hidden = false;

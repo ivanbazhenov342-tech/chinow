@@ -1,10 +1,12 @@
 import * as T from "./vendor/three.module.js";
+import { createSurfaces } from "./materials.js?v=6";
+import { createCharacters } from "./characters.js?v=6";
 
 const palettes = [
-  { wall: 0xe8d6b3, roof: 0x3a625b, leaf: 0x73936d },
-  { wall: 0xe9d6b8, roof: 0x42665a, leaf: 0x83975c },
-  { wall: 0xe8c8ab, roof: 0x776256, leaf: 0x73906b },
-  { wall: 0xf0d6b3, roof: 0x4c6d6c, leaf: 0x759e78 },
+  { wall: 0xe8d6b3, roof: 0x3a625b, leaf: 0x536b42 },
+  { wall: 0xe9d6b8, roof: 0x42665a, leaf: 0x667742 },
+  { wall: 0xe8c8ab, roof: 0x776256, leaf: 0x506941 },
+  { wall: 0xf0d6b3, roof: 0x4c6d6c, leaf: 0x476c46 },
 ];
 export function createWorld(root, onVisit) {
   const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -13,11 +15,13 @@ export function createWorld(root, onVisit) {
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = T.PCFSoftShadowMap;
   renderer.outputColorSpace = T.SRGBColorSpace;
+  renderer.toneMapping = T.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.05;
   root.prepend(renderer.domElement);
   const scene = new T.Scene();
-  scene.fog = new T.FogExp2(0xb8cfc5, 0.011);
+  scene.fog = new T.FogExp2(0xb8c6be, 0.008);
   const camera = new T.OrthographicCamera(-15, 15, 12, -12, 0.1, 160);
-  const sunlight = new T.DirectionalLight(0xffedc6, 3);
+  const sunlight = new T.DirectionalLight(0xffeccf, 3.2);
   sunlight.position.set(-14, 28, 14);
   sunlight.castShadow = true;
   const shadowSize = root.clientWidth < 700 ? 1024 : 2048;
@@ -33,10 +37,12 @@ export function createWorld(root, onVisit) {
   sunlight.shadow.camera.updateProjectionMatrix();
   sunlight.shadow.normalBias = 0.045;
   sunlight.shadow.bias = -0.0001;
-  scene.add(sunlight, new T.HemisphereLight(0xfff3d9, 0x678e80, 2.1));
+  scene.add(sunlight, new T.HemisphereLight(0xdce8ee, 0x71664c, 0.85));
   const cube = new T.BoxGeometry(),
-    sphere = new T.SphereGeometry(1, 12, 10);
+    sphere = new T.SphereGeometry(1, 24, 16);
   const materials = new Map();
+  const surfaces = createSurfaces(T, renderer);
+  const characters = createCharacters(renderer);
   let town = new T.Group(),
     hits = [],
     obstacles = [],
@@ -49,7 +55,14 @@ export function createWorld(root, onVisit) {
     studyKey = "",
     rewardGroup = null;
   scene.add(town);
+  const woodColors = new Set([
+    0xa77a4a, 0x735c41, 0x806542, 0x8a6f4d, 0x8c7859, 0x7e7250, 0x6d674e,
+    0x826844, 0x80694d, 0x7d6f4e, 0x8c6d46, 0x7d6850, 0x835c3e, 0x684c37,
+  ]);
   function material(color) {
+    if (color?.isMaterial) return color;
+    if (woodColors.has(color)) return surfaces.wood;
+    if (color === 0x819d8d || color === 0xaeb49a) return surfaces.stone;
     if (!materials.has(color))
       materials.set(
         color,
@@ -65,9 +78,25 @@ export function createWorld(root, onVisit) {
     return o;
   }
   function box(x, y, z, w, h, d, color, parent) {
-    const o = mesh(cube, color, x, y, z, parent);
-    o.scale.set(w, h, d);
-    return o;
+    const mat = material(color);
+    const geometry = mat.map ? new T.BoxGeometry(w, h, d) : cube;
+    if (mat.map) {
+      const positions = geometry.attributes.position,
+        normals = geometry.attributes.normal,
+        uv = geometry.attributes.uv,
+        density = mat.userData.uvScale || 1;
+      for (let i = 0; i < uv.count; i++) {
+        const nx = Math.abs(normals.getX(i)),
+          ny = Math.abs(normals.getY(i)),
+          nz = Math.abs(normals.getZ(i));
+        const u = nx > ny && nx > nz ? positions.getZ(i) : positions.getX(i);
+        const v = ny > nx && ny > nz ? positions.getZ(i) : positions.getY(i);
+        uv.setXY(i, u * density, v * density);
+      }
+    }
+    const object = mesh(geometry, mat, x, y, z, parent);
+    if (!mat.map) object.scale.set(w, h, d);
+    return object;
   }
   function orb(x, y, z, r, color, parent) {
     const o = mesh(sphere, color, x, y, z, parent);
@@ -79,59 +108,202 @@ export function createWorld(root, onVisit) {
     canvas.width = 512;
     canvas.height = 192;
     const ctx = canvas.getContext("2d");
-    ctx.fillStyle = "#294e43";
-    ctx.fillRect(0, 0, 512, 192);
-    ctx.strokeStyle = "#d4bc80";
-    ctx.lineWidth = 5;
-    ctx.strokeRect(9, 9, 494, 174);
+    ctx.strokeStyle = "#d6bd83";
+    ctx.lineWidth = 4;
+    ctx.strokeRect(14, 14, 484, 164);
     ctx.font = Math.min(76, 440 / Array.from(text).length) + "px serif";
-    ctx.fillStyle = "#fff0cb";
+    ctx.fillStyle = "#f0e2bd";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(text, 256, 103);
+    ctx.fillText(text, 256, 102);
     const texture = new T.CanvasTexture(canvas);
     texture.colorSpace = T.SRGBColorSpace;
-    texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
-    const sprite = new T.Sprite(
-      new T.SpriteMaterial({ map: texture, depthTest: true }),
-    );
-    sprite.position.set(x, y, z);
-    sprite.scale.set(3.1 * scale, 1.16 * scale, 1);
-    parent.add(sprite);
-    if (id) {
-      sprite.userData.id = id;
-      hits.push(sprite);
+    texture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+    const paint = new T.MeshStandardMaterial({
+      map: texture,
+      transparent: true,
+      alphaTest: 0.06,
+      roughness: 0.85,
+      depthWrite: false,
+    });
+    paint.userData.signFace = true;
+    const board = new T.Group();
+    board.name = "sign-" + (id || text);
+    board.userData.physicalSign = true;
+    board.position.set(x, y, z);
+    parent.add(board);
+    const width = 3.1 * scale,
+      height = 1.16 * scale,
+      depth = 0.14 * scale;
+    box(0, 0, 0, width, height, depth, surfaces.signWood, board);
+    for (const side of [-1, 1]) {
+      const face = mesh(
+        new T.PlaneGeometry(width - 0.06, height - 0.06),
+        paint,
+        0,
+        0,
+        side * (depth / 2 + 0.006),
+        board,
+      );
+      face.rotation.y = side < 0 ? Math.PI : 0;
+      face.castShadow = false;
     }
-    return sprite;
+    for (const cornerX of [-1, 1])
+      for (const cornerY of [-1, 1]) {
+        orb(
+          cornerX * (width / 2 - 0.07),
+          cornerY * (height / 2 - 0.07),
+          depth / 2 + 0.012,
+          0.024,
+          surfaces.bronze,
+          board,
+        );
+      }
+    if (id)
+      board.traverse((o) => {
+        if (o.isMesh) {
+          o.userData.id = id;
+          hits.push(o);
+        }
+      });
+    return board;
   }
   function lantern(x, y, z, parent = town) {
+    const group = new T.Group();
+    group.position.set(x, y + 0.4, z);
+    parent.add(group);
     mesh(
-      new T.CylinderGeometry(0.05, 0.05, 0.35, 6),
-      0x806140,
-      x,
-      y + 0.45,
-      z,
-      parent,
+      new T.CylinderGeometry(0.012, 0.012, 0.36, 8),
+      surfaces.bronze,
+      0,
+      -0.17,
+      0,
+      group,
     );
-    const body = orb(x, y, z, 0.25, 0xc66c43, parent);
-    body.scale.y = 0.9;
-    mesh(
-      new T.CylinderGeometry(0.13, 0.13, 0.07, 8),
-      0xdbb16c,
-      x,
-      y + 0.24,
-      z,
-      parent,
+    const profile = [
+      [0.12, -0.25],
+      [0.2, -0.2],
+      [0.265, -0.06],
+      [0.265, 0.06],
+      [0.2, 0.2],
+      [0.12, 0.25],
+    ].map((p) => new T.Vector2(...p));
+    const paper = surfaces.fabric(0xc77647);
+    paper.emissive.setHex(0x40200b);
+    paper.emissiveIntensity = 0.12;
+    mesh(new T.LatheGeometry(profile, 24), paper, 0, -0.4, 0, group);
+    for (const side of [-1, 1])
+      mesh(
+        new T.CylinderGeometry(0.125, 0.125, 0.055, 16),
+        surfaces.bronze,
+        0,
+        -0.4 + side * 0.26,
+        0,
+        group,
+      );
+    for (let i = 0; i < 8; i++) {
+      const angle = (i * Math.PI) / 4,
+        curve = new T.CatmullRomCurve3(
+          profile.map(
+            (p) =>
+              new T.Vector3(
+                Math.sin(angle) * p.x,
+                p.y - 0.4,
+                Math.cos(angle) * p.x,
+              ),
+          ),
+        );
+      mesh(
+        new T.TubeGeometry(curve, 10, 0.006, 4, false),
+        surfaces.bronze,
+        0,
+        0,
+        0,
+        group,
+      );
+    }
+    for (let i = 0; i < 4; i++)
+      mesh(
+        new T.CylinderGeometry(0.007, 0.004, 0.2, 5),
+        surfaces.fabric(0x984628),
+        (i - 1.5) * 0.018,
+        -0.82,
+        0,
+        group,
+      );
+    animated.push({ kind: "lantern", o: group, phase: x + z });
+  }
+  function roofGeometry(width, depth) {
+    const positions = [],
+      uv = [],
+      indices = [],
+      columns = 24,
+      rows = 16;
+    for (let row = 0; row <= rows; row++) {
+      const z = (row / rows - 0.5) * depth;
+      for (let column = 0; column <= columns; column++) {
+        const x = (column / columns - 0.5) * width,
+          u = Math.abs(z) / (depth / 2),
+          v = Math.abs(x) / (width / 2);
+        const hip = Math.max(0, (v - 0.72) / 0.28);
+        const y =
+          4.45 -
+          1.6 * u +
+          0.38 * Math.pow(u, 4) -
+          0.72 * hip * (1 - u) +
+          0.17 * Math.pow(v, 6) * Math.pow(u, 4);
+        positions.push(x, y, z);
+        uv.push(x * 0.7, Math.abs(z) * 0.7);
+        if (row < rows && column < columns) {
+          const a = row * (columns + 1) + column,
+            b = a + 1,
+            c = a + columns + 1,
+            d = c + 1;
+          indices.push(a, c, b, b, c, d);
+        }
+      }
+    }
+    const count = positions.length / 3,
+      topIndices = [...indices];
+    for (let i = 0; i < count; i++) {
+      positions.push(
+        positions[i * 3],
+        positions[i * 3 + 1] - 0.16,
+        positions[i * 3 + 2],
+      );
+      uv.push(uv[i * 2], uv[i * 2 + 1]);
+    }
+    for (let i = 0; i < topIndices.length; i += 3)
+      indices.push(
+        topIndices[i] + count,
+        topIndices[i + 2] + count,
+        topIndices[i + 1] + count,
+      );
+    const closeEdge = (a, b) =>
+      indices.push(a, b, b + count, a, b + count, a + count);
+    for (let column = 0; column < columns; column++) {
+      closeEdge(column, column + 1);
+      closeEdge(
+        rows * (columns + 1) + column + 1,
+        rows * (columns + 1) + column,
+      );
+    }
+    for (let row = 0; row < rows; row++) {
+      closeEdge(
+        row * (columns + 1) + columns,
+        (row + 1) * (columns + 1) + columns,
+      );
+      closeEdge((row + 1) * (columns + 1), row * (columns + 1));
+    }
+    const geometry = new T.BufferGeometry();
+    geometry.setAttribute(
+      "position",
+      new T.Float32BufferAttribute(positions, 3),
     );
-    mesh(
-      new T.CylinderGeometry(0.035, 0.035, 0.22, 5),
-      0xdbb16c,
-      x,
-      y - 0.35,
-      z,
-      parent,
-    );
-    animated.push({ kind: "lantern", o: body, y, phase: x + z });
+    geometry.setAttribute("uv", new T.Float32BufferAttribute(uv, 2));
+    geometry.setIndex(indices);
+    geometry.computeVertexNormals();
+    return geometry;
   }
   function building(
     x,
@@ -145,162 +317,501 @@ export function createWorld(root, onVisit) {
     const group = new T.Group();
     town.add(group);
     group.position.set(x, 0, z);
-    box(0, 0.42, 0, w + 0.65, 0.3, d + 0.65, 0xa69f88, group);
-    box(0, 1.85, 0, w, 2.7, d, palette.wall, group);
-    for (const a of [-1, 1])
-      box(
-        a * (w / 2 - 0.12),
-        1.9,
-        d / 2 + 0.06,
-        0.19,
-        2.8,
-        0.19,
-        0x6a4e39,
-        group,
-      );
-    box(0, 1.45, d / 2 + 0.08, 1.06, 2.15, 0.12, 0x5a5542, group);
-    for (const a of [-1, 1]) {
-      box(a * w * 0.32, 2, d / 2 + 0.08, 0.9, 1.15, 0.1, 0x8d9f88, group);
-      for (let t = -1; t <= 1; t++)
-        box(
-          a * w * 0.32 + t * 0.26,
-          2,
-          d / 2 + 0.15,
-          0.055,
-          1.15,
-          0.06,
-          0x72553c,
+    box(0, 0.42, 0, w + 0.65, 0.3, d + 0.65, surfaces.stone, group);
+    box(0, 0.62, 0, w + 0.12, 0.12, d + 0.12, surfaces.darkWood, group);
+    box(0, 1.87, 0, w, 2.48, d, surfaces.wall(palette.wall), group);
+    for (const side of [-1, 1]) {
+      for (const front of [-1, 1]) {
+        const column = mesh(
+          new T.CylinderGeometry(0.115, 0.14, 2.7, 16),
+          surfaces.wood,
+          side * (w / 2 - 0.12),
+          1.91,
+          front * (d / 2 + 0.035),
           group,
         );
-      box(a * w * 0.32, 2, d / 2 + 0.16, 0.94, 0.07, 0.06, 0x72553c, group);
+        mesh(
+          new T.CylinderGeometry(0.17, 0.18, 0.22, 16),
+          surfaces.stone,
+          column.position.x,
+          0.68,
+          column.position.z,
+          group,
+        );
+      }
+      box(
+        0,
+        3.14,
+        side * (d / 2 + 0.08),
+        w + 0.22,
+        0.2,
+        0.2,
+        surfaces.darkWood,
+        group,
+      );
+      box(side * (w / 2 + 0.02), 1.85, 0, 0.1, 0.14, d, surfaces.wood, group);
     }
-    const shape = new T.Shape();
-    shape.moveTo(-w / 2 - 0.8, 3.16);
-    shape.quadraticCurveTo(-w * 0.3, 3.12, 0, 4.5);
-    shape.quadraticCurveTo(w * 0.3, 3.12, w / 2 + 0.8, 3.16);
-    shape.lineTo(w / 2 + 0.6, 2.97);
-    shape.quadraticCurveTo(w * 0.28, 3.02, 0, 4.22);
-    shape.quadraticCurveTo(-w * 0.28, 3.02, -w / 2 - 0.6, 2.97);
-    shape.closePath();
-    mesh(
-      new T.ExtrudeGeometry(shape, {
-        depth: d + 1,
-        bevelEnabled: false,
-        steps: 1,
-      }),
-      palette.roof,
+    // Recessed double doors, raised panels and small brass pulls.
+    box(0, 1.61, d / 2 + 0.045, 1.25, 2.16, 0.09, surfaces.darkWood, group);
+    for (const side of [-1, 1]) {
+      box(
+        side * 0.29,
+        1.56,
+        d / 2 + 0.12,
+        0.55,
+        1.94,
+        0.07,
+        surfaces.wood,
+        group,
+      );
+      for (const y of [1.02, 1.81])
+        box(
+          side * 0.29,
+          y,
+          d / 2 + 0.17,
+          0.43,
+          0.64,
+          0.035,
+          surfaces.darkWood,
+          group,
+        );
+      const handle = mesh(
+        new T.TorusGeometry(0.047, 0.013, 8, 16),
+        surfaces.bronze,
+        side * 0.12,
+        1.59,
+        d / 2 + 0.22,
+        group,
+      );
+    }
+    for (const side of [-1, 1]) {
+      const wx = side * w * 0.33;
+      box(wx, 2.03, d / 2 + 0.055, 0.98, 1.23, 0.06, surfaces.darkWood, group);
+      box(wx, 2.03, d / 2 + 0.095, 0.84, 1.08, 0.035, surfaces.glass, group);
+      for (let bar = -1; bar <= 1; bar++)
+        box(
+          wx + bar * 0.27,
+          2.03,
+          d / 2 + 0.15,
+          0.034,
+          1.1,
+          0.045,
+          surfaces.wood,
+          group,
+        );
+      for (const y of [1.67, 2.04, 2.4])
+        box(wx, y, d / 2 + 0.165, 0.87, 0.032, 0.05, surfaces.wood, group);
+      box(wx, 1.39, d / 2 + 0.11, 1.04, 0.11, 0.21, surfaces.wood, group);
+    }
+    const roof = mesh(
+      roofGeometry(w + 1.4, d + 1.25),
+      surfaces.roof,
       0,
       0,
-      -d / 2 - 0.5,
+      0,
       group,
     );
-    box(0, 4.49, 0, 0.16, 0.14, d + 1.25, 0x55776a, group);
-    for (let a of [-1, 1])
-      lantern(a * (w / 2 - 0.45), 2.85, d / 2 + 0.42, group);
-    label(text, x, 2.85, z + d / 2 + 0.2, id, 0.76);
+    roof.material.side = T.DoubleSide;
+    // Solid eaves and individual ridge caps catch light at the roof silhouette.
+    for (const front of [-1, 1]) {
+      const edge = [];
+      for (let i = 0; i <= 12; i++) {
+        const px = (i / 12 - 0.5) * (w + 1.4),
+          v = Math.abs(px) / ((w + 1.4) / 2);
+        edge.push(
+          new T.Vector3(
+            px,
+            3.23 + 0.17 * Math.pow(v, 6),
+            (front * (d + 1.25)) / 2,
+          ),
+        );
+      }
+      mesh(
+        new T.TubeGeometry(new T.CatmullRomCurve3(edge), 24, 0.085, 8, false),
+        surfaces.darkWood,
+        0,
+        0,
+        0,
+        group,
+      );
+    }
+    for (let i = 0; i < Math.ceil(w / 0.32); i++) {
+      const px = -w / 2 + 0.16 + i * 0.32;
+      const cap = mesh(
+        new T.CylinderGeometry(0.105, 0.105, 0.34, 12, 1, false, 0, Math.PI),
+        surfaces.roof,
+        px,
+        4.49,
+        0,
+        group,
+      );
+      cap.rotation.z = Math.PI / 2;
+    }
+    for (const side of [-1, 1])
+      lantern(side * (w / 2 - 0.45), 2.87, d / 2 + 0.42, group);
+    label(text, x, 2.71, z + d / 2 + 0.24, id, 0.65);
     obstacles.push({ x, z, w: w + 0.5, d: d + 0.5 });
     return group;
   }
   function tree(x, z, size = 1, color = 0x769569) {
+    const trunk = new T.CatmullRomCurve3([
+      new T.Vector3(x, 0.2, z),
+      new T.Vector3(x - 0.13 * size, 1.1 * size, z),
+      new T.Vector3(x + 0.12 * size, 2.6 * size, z - 0.08 * size),
+    ]);
     mesh(
-      new T.CylinderGeometry(0.14 * size, 0.22 * size, 2.2 * size, 7),
-      0x806b4b,
-      x,
-      1.25 * size,
-      z,
+      new T.TubeGeometry(trunk, 14, 0.16 * size, 10, false),
+      surfaces.bark,
+      0,
+      0,
+      0,
     );
     for (let i = 0; i < 3; i++) {
-      const leaf = orb(
-        x + Math.sin(i * 2.2) * 0.55 * size,
-        (2.6 + i * 0.4) * size,
-        z + Math.cos(i * 2.2) * 0.5 * size,
-        (1.12 - i * 0.12) * size,
-        color,
+      const angle = i * 2.3;
+      const branch = new T.CatmullRomCurve3([
+        new T.Vector3(x, 1.4 * size, z),
+        new T.Vector3(
+          x + Math.sin(angle) * 0.5 * size,
+          2 * size,
+          z + Math.cos(angle) * 0.4 * size,
+        ),
+        new T.Vector3(
+          x + Math.sin(angle) * 0.85 * size,
+          2.8 * size,
+          z + Math.cos(angle) * 0.7 * size,
+        ),
+      ]);
+      mesh(
+        new T.TubeGeometry(branch, 8, 0.055 * size, 6, false),
+        surfaces.bark,
+        0,
+        0,
+        0,
       );
-      leaf.scale.y = 0.7;
+    }
+    // Folded, solid leaves throughout a branching crown, with open gaps between clusters.
+    const leafShape = new T.Shape();
+    leafShape.moveTo(0, 0);
+    leafShape.quadraticCurveTo(0.11, 0.12, 0, 0.3);
+    leafShape.quadraticCurveTo(-0.11, 0.12, 0, 0);
+    const leafGeometry = new T.ExtrudeGeometry(leafShape, {
+      depth: 0.004,
+      bevelEnabled: false,
+      curveSegments: 2,
+    });
+    const positions = leafGeometry.attributes.position;
+    for (let i = 0; i < positions.count; i++)
+      positions.setZ(
+        i,
+        positions.getZ(i) +
+          Math.sin((positions.getY(i) / 0.3) * Math.PI) * 0.025,
+      );
+    leafGeometry.computeVertexNormals();
+    const leaves = new T.InstancedMesh(leafGeometry, material(color), 1200);
+    const dummy = new T.Object3D(),
+      tint = new T.Color();
+    leaves.castShadow = leaves.receiveShadow = true;
+    town.add(leaves);
+    const fract = (value) => value - Math.floor(value);
+    for (let i = 0; i < 1200; i++) {
+      const cluster = i % 5,
+        branchAngle = cluster * 2.4;
+      const angle = i * 2.3999;
+      const vertical = fract(i * 0.6180339) * 2 - 1;
+      const radius = Math.cbrt(fract(i * 0.75487766)) * 0.8;
+      const spread = Math.sqrt(1 - vertical * vertical) * radius;
+      dummy.position.set(
+        x + (Math.sin(branchAngle) * 0.57 + Math.sin(angle) * spread) * size,
+        (2.65 + (cluster % 3) * 0.3 + vertical * radius * 0.85) * size,
+        z + (Math.cos(branchAngle) * 0.57 + Math.cos(angle) * spread) * size,
+      );
+      dummy.rotation.set(
+        Math.sin(i * 1.7) * Math.PI,
+        angle,
+        Math.sin(i * 2.3) * Math.PI,
+      );
+      dummy.scale.setScalar(size * (1.05 + (i % 4) * 0.13));
+      dummy.updateMatrix();
+      leaves.setMatrixAt(i, dummy.matrix);
+      tint.setHex(color).multiplyScalar(0.68 + (i % 7) * 0.075);
+      leaves.setColorAt(i, tint);
     }
   }
+
   function person(x, z, color, id) {
     const group = new T.Group();
-    group.position.set(x, 0.32, z);
     town.add(group);
-    box(0, 0.24, 0, 0.42, 0.43, 0.3, 0x44574f, group);
-    for (const side of [-1, 1])
-      box(side * 0.14, 0.12, 0.03, 0.16, 0.24, 0.25, 0x4b4b40, group);
-    mesh(new T.CylinderGeometry(0.26, 0.34, 0.75, 8), color, 0, 0.79, 0, group);
-    orb(0, 1.39, 0, 0.25, 0xd2a278, group);
-    const hair = orb(0, 1.51, -0.035, 0.24, 0x403f34, group);
-    hair.scale.y = 0.7;
-    for (const side of [-1, 1]) {
-      const arm = box(side * 0.32, 0.8, 0, 0.14, 0.55, 0.17, color, group);
-      arm.rotation.z = side * 0.1;
+    group.position.set(x, 0.32, z);
+    group.name = id || "passerby";
+    const kind =
+      id === "friend" || id === "resident"
+        ? "lin"
+        : id === "tea" || id === "guard"
+          ? "lo"
+          : "traveler";
+    characters.attach(group, kind, id, (object) => hits.push(object));
+    if (id) {
+      obstacles.push({ x, z, w: 0.9, d: 0.9 });
+      animated.push({ kind: "idle", o: group, phase: x + z });
     }
-    if (id)
-      group.traverse((o) => {
-        if (o.isMesh) {
-          o.userData.id = id;
-          hits.push(o);
-        }
-      });
     return group;
   }
   function train() {
     const group = new T.Group();
     town.add(group);
     for (let i = 0; i < 3; i++) {
-      let x = -13 + i * 8;
-      box(x, 1.6, 8, 7.7, 2.1, 2.1, 0x37624f, group);
-      box(x, 2.78, 8, 7.85, 0.25, 2.3, 0x465652, group);
-      box(x, 0.9, 6.91, 7.6, 0.25, 0.06, 0xd8b772, group);
-      for (let j = 0; j < 6; j++) {
-        box(x - 3 + j * 1.16, 2, 6.91, 0.78, 0.7, 0.05, 0xadd5cb, group);
-        box(x - 3 + j * 1.16, 2.38, 6.86, 0.8, 0.06, 0.06, 0xddd7b4, group);
-      }
-      for (let side of [-1, 1])
-        mesh(
-          new T.CylinderGeometry(0.33, 0.33, 2, 10),
-          0x444e46,
-          x + side * 2.5,
-          0.5,
-          8,
+      const x = -13 + i * 8;
+      box(x, 1.62, 8, 7.7, 1.95, 2.1, surfaces.paintedMetal, group);
+      box(x, 0.65, 8, 7.5, 0.32, 1.75, surfaces.iron, group);
+      const roofGeometry = new T.CylinderGeometry(
+        1.18,
+        1.18,
+        7.8,
+        32,
+        1,
+        false,
+        0,
+        Math.PI,
+      );
+      roofGeometry.scale(0.28, 1, 1);
+      roofGeometry.rotateZ(Math.PI / 2);
+      mesh(roofGeometry, surfaces.iron, x, 2.59, 8, group);
+      for (const side of [-1, 1]) {
+        box(
+          x,
+          1.03,
+          8 + side * 1.065,
+          7.6,
+          0.055,
+          0.025,
+          surfaces.bronze,
           group,
-        ).rotation.x = Math.PI / 2;
+        );
+        for (let j = 0; j < 5; j++) {
+          const wx = x - 2.5 + j * 1.25;
+          box(
+            wx,
+            2.02,
+            8 + side * 1.065,
+            0.91,
+            0.86,
+            0.045,
+            surfaces.iron,
+            group,
+          );
+          box(
+            wx,
+            2.02,
+            8 + side * 1.095,
+            0.79,
+            0.72,
+            0.025,
+            surfaces.glass,
+            group,
+          );
+          box(
+            wx,
+            2.07,
+            8 + side * 1.115,
+            0.026,
+            0.72,
+            0.026,
+            surfaces.bronze,
+            group,
+          );
+        }
+        for (const end of [-1, 1]) {
+          box(
+            x + end * 3.48,
+            1.7,
+            8 + side * 1.075,
+            0.49,
+            1.55,
+            0.035,
+            surfaces.iron,
+            group,
+          );
+          box(
+            x + end * 3.48,
+            1.72,
+            8 + side * 1.1,
+            0.39,
+            1.41,
+            0.03,
+            surfaces.paintedMetal,
+            group,
+          );
+          box(
+            x + end * 3.48,
+            2.05,
+            8 + side * 1.125,
+            0.28,
+            0.55,
+            0.025,
+            surfaces.glass,
+            group,
+          );
+          box(
+            x + end * 3.32,
+            1.57,
+            8 + side * 1.16,
+            0.025,
+            0.17,
+            0.035,
+            surfaces.bronze,
+            group,
+          );
+        }
+      }
+      for (const end of [-1, 1]) {
+        box(x + end * 2.55, 0.55, 8, 1.5, 0.35, 1.55, surfaces.iron, group);
+        for (const axle of [-1, 1]) {
+          const px = x + end * 2.55 + axle * 0.48;
+          const shaft = mesh(
+            new T.CylinderGeometry(0.08, 0.08, 2, 12),
+            surfaces.iron,
+            px,
+            0.45,
+            8,
+            group,
+          );
+          shaft.rotation.x = Math.PI / 2;
+          for (const side of [-1, 1]) {
+            const wheel = mesh(
+              new T.CylinderGeometry(0.34, 0.34, 0.16, 20),
+              surfaces.iron,
+              px,
+              0.45,
+              8 + side * 0.93,
+              group,
+            );
+            wheel.rotation.x = Math.PI / 2;
+            const hub = mesh(
+              new T.CylinderGeometry(0.12, 0.12, 0.18, 16),
+              surfaces.bronze,
+              px,
+              0.45,
+              8 + side * 0.94,
+              group,
+            );
+            hub.rotation.x = Math.PI / 2;
+          }
+        }
+        box(x + end * 3.88, 0.87, 8, 0.25, 0.22, 0.7, surfaces.iron, group);
+      }
     }
     animated.push({ kind: "train", o: group });
   }
   function table(x, z) {
-    mesh(new T.CylinderGeometry(0.9, 0.9, 0.14, 20), 0xa77a4a, x, 1.1, z);
-    mesh(new T.CylinderGeometry(0.12, 0.2, 1, 8), 0x735c41, x, 0.6, z);
-    for (let side of [-1, 1])
+    mesh(new T.CylinderGeometry(0.9, 0.9, 0.13, 32), surfaces.wood, x, 1.1, z);
+    mesh(
+      new T.CylinderGeometry(0.12, 0.2, 0.92, 16),
+      surfaces.darkWood,
+      x,
+      0.62,
+      z,
+    );
+    for (let leg = 0; leg < 3; leg++) {
+      const angle = (leg * Math.PI * 2) / 3,
+        foot = box(
+          x + Math.sin(angle) * 0.32,
+          0.37,
+          z + Math.cos(angle) * 0.32,
+          0.12,
+          0.12,
+          0.65,
+          surfaces.darkWood,
+        );
+      foot.rotation.y = angle;
+    }
+    for (const side of [-1, 1]) {
       mesh(
-        new T.CylinderGeometry(0.35, 0.4, 0.55, 10),
-        0x806542,
+        new T.CylinderGeometry(0.34, 0.35, 0.11, 24),
+        surfaces.wood,
         x + side * 1.3,
-        0.6,
+        0.72,
         z,
       );
+      for (const a of [-1, 1])
+        for (const b of [-1, 1])
+          box(
+            x + side * 1.3 + a * 0.2,
+            0.49,
+            z + b * 0.2,
+            0.07,
+            0.4,
+            0.07,
+            surfaces.darkWood,
+          );
+    }
+    const cupProfile = [
+      [0.055, 0],
+      [0.075, 0.025],
+      [0.095, 0.16],
+      [0.09, 0.175],
+      [0.077, 0.16],
+      [0.057, 0.035],
+    ].map((p) => new T.Vector2(...p));
     mesh(
-      new T.CylinderGeometry(0.1, 0.08, 0.19, 12),
-      0xeee1b7,
-      x + 0.3,
-      1.27,
-      z,
+      new T.LatheGeometry(cupProfile, 24),
+      surfaces.ceramic,
+      x + 0.32,
+      1.17,
+      z + 0.2,
     );
     mesh(
-      new T.CylinderGeometry(0.15, 0.19, 0.25, 12),
-      0x6f9074,
+      new T.CylinderGeometry(0.074, 0.074, 0.005, 24),
+      0x4b3523,
+      x + 0.32,
+      1.31,
+      z + 0.2,
+    );
+    mesh(
+      new T.CylinderGeometry(0.14, 0.14, 0.018, 24),
+      surfaces.ceramic,
+      x + 0.32,
+      1.18,
+      z + 0.2,
+    );
+    const pot = orb(x - 0.2, 1.35, z, 1, surfaces.ceramic);
+    pot.scale.set(0.24, 0.18, 0.2);
+    mesh(
+      new T.CylinderGeometry(0.13, 0.14, 0.045, 20),
+      surfaces.ceramic,
       x - 0.2,
-      1.3,
+      1.51,
       z,
+    );
+    orb(x - 0.2, 1.56, z, 0.045, surfaces.ceramic);
+    const handle = mesh(
+      new T.TorusGeometry(0.17, 0.028, 10, 24, Math.PI * 1.6),
+      surfaces.ceramic,
+      x - 0.38,
+      1.36,
+      z,
+    );
+    handle.rotation.z = Math.PI * 0.2;
+    const spout = new T.CatmullRomCurve3([
+      new T.Vector3(x, 1.33, z),
+      new T.Vector3(x + 0.1, 1.39, z),
+      new T.Vector3(x + 0.13, 1.5, z),
+    ]);
+    mesh(
+      new T.TubeGeometry(spout, 10, 0.045, 10, false),
+      surfaces.ceramic,
+      0,
+      0,
+      0,
     );
     for (let i = 0; i < 4; i++) {
-      const puff = orb(x - 0.2, 1.65 + i * 0.22, z, 0.07, 0xeff2dc);
+      const puff = orb(x - 0.2, 1.65 + i * 0.22, z, 0.06, 0xeff2dc);
       puff.material = new T.MeshBasicMaterial({
         color: 0xf3f2de,
         transparent: true,
-        opacity: 0.35,
+        opacity: 0.28,
         depthWrite: false,
       });
+      puff.material.userData.owned = true;
       animated.push({
         kind: "steam",
         o: puff,
@@ -409,7 +920,7 @@ export function createWorld(root, onVisit) {
     entry: [-1, -1],
     exit: [4, -1],
     friend: [6, -3],
-    tea: [-3, -6],
+    tea: [-3, -5.4],
     resident: [3, 1],
     board: [-1, 1],
   };
@@ -422,12 +933,18 @@ export function createWorld(root, onVisit) {
     if (!group) return;
     group.removeFromParent();
     group.traverse((o) => {
-      if (o.geometry && o.geometry !== cube && o.geometry !== sphere)
+      if (o.isInstancedMesh) o.dispose();
+      if (
+        o.geometry &&
+        !o.userData.sharedCharacter &&
+        o.geometry !== cube &&
+        o.geometry !== sphere
+      )
         o.geometry.dispose();
-      if (o.isSprite) {
+      if (o.isSprite || o.material?.userData?.signFace) {
         o.material.map.dispose();
         o.material.dispose();
-      } else if (o.material?.transparent) o.material.dispose();
+      }
     });
   }
   function clearStudy() {
@@ -436,6 +953,7 @@ export function createWorld(root, onVisit) {
     studyKey = "";
     hits = hits.filter((o) => o.userData.id !== "study");
     delete places.study;
+    obstacles = obstacles.filter((o) => o.id !== "study");
   }
   function studyWord(word, index) {
     const key = index + ":" + word;
@@ -444,30 +962,51 @@ export function createWorld(root, onVisit) {
     studyKey = key;
     route = [];
     arrival = null;
-    const spots = [places.resident, places.friend, places.guard, places.tea];
+    const spots = [places.resident, places.friend, places.guard, [0, 0]];
     const [x, z] = spots[index % spots.length];
     places.study = [x, z];
+    obstacles.push({ id: "study", x, z: z + 0.9, w: 1.05, d: 0.66 });
     studyGroup = new T.Group();
     town.add(studyGroup);
     // A small reading stand holds the current note in the physical scene.
-    box(x, 0.72, z + 0.6, 1.05, 0.11, 0.66, 0xa88758, studyGroup);
+    box(x, 0.72, z + 0.9, 1.05, 0.11, 0.66, surfaces.wood, studyGroup);
     for (const side of [-1, 1])
-      box(x + side * 0.36, 0.5, z + 0.6, 0.1, 0.5, 0.1, 0x7b6746, studyGroup);
-    const page = box(x, 0.82, z + 0.6, 0.84, 0.035, 0.53, 0xf4e6c3, studyGroup);
+      box(
+        x + side * 0.36,
+        0.5,
+        z + 0.9,
+        0.1,
+        0.5,
+        0.1,
+        surfaces.darkWood,
+        studyGroup,
+      );
+    const page = box(x, 0.82, z + 0.9, 0.84, 0.035, 0.53, 0xf4e6c3, studyGroup);
     page.rotation.x = -0.12;
-    box(x - 0.27, 0.85, z + 0.6, 0.045, 0.025, 0.44, 0xbca477, studyGroup);
+    box(x - 0.27, 0.85, z + 0.9, 0.045, 0.025, 0.44, 0xbca477, studyGroup);
     for (let i = 0; i < 3; i++)
       box(
         x + 0.05,
         0.86,
-        z + 0.47 + i * 0.11,
+        z + 0.77 + i * 0.11,
         0.4,
         0.02,
         0.018,
         0x7a805e,
         studyGroup,
       );
-    label(word, x, 3.1, z, "study", 0.8, studyGroup);
+    for (const side of [-1, 1])
+      box(
+        x + side * 0.43,
+        1.01,
+        z + 0.91,
+        0.045,
+        0.48,
+        0.06,
+        surfaces.wood,
+        studyGroup,
+      );
+    label(word, x, 1.24, z + 0.91, "study", 0.34, studyGroup);
     studyGroup.traverse((o) => {
       if (o.isMesh) {
         o.userData.id = "study";
@@ -520,13 +1059,20 @@ export function createWorld(root, onVisit) {
   function build(index = 0) {
     scene.remove(town);
     town.traverse((o) => {
-      if (o.geometry && o.geometry !== cube && o.geometry !== sphere)
+      if (o.isInstancedMesh) o.dispose();
+      if (
+        o.geometry &&
+        !o.userData.sharedCharacter &&
+        o.geometry !== cube &&
+        o.geometry !== sphere
+      )
         o.geometry.dispose();
-      if (o.isSprite) {
+      if (o.isSprite || o.material?.userData?.signFace) {
         o.material.map.dispose();
         o.material.dispose();
       }
-      if (o.material?.transparent && !o.isSprite) o.material.dispose();
+      if (o.material?.userData?.owned) o.material.dispose();
+      if (o.isSkinnedMesh) o.skeleton.dispose();
     });
     town = new T.Group();
     scene.add(town);
@@ -541,27 +1087,27 @@ export function createWorld(root, onVisit) {
     arrival = null;
     time = 0;
     const pal = palettes[index % palettes.length];
-    box(0, -0.6, -2, 34, 1.4, 28, 0x91a487);
-    box(0, 0.12, 0, 24, 0.4, 19, 0xc9c2a6);
-    box(0, 0.34, 0, 21, 0.035, 5, 0xe0d3b5);
-    box(4, 0.34, -4, 4, 0.035, 13, 0xe0d3b5);
+    box(0, -0.6, -2, 34, 1.4, 28, surfaces.ground);
+    box(0, 0.12, 0, 24, 0.4, 19, surfaces.stone);
+    box(0, 0.34, 0, 21, 0.035, 5, surfaces.stone);
+    box(4, 0.34, -4, 4, 0.035, 13, surfaces.stone);
     for (let i = 0; i < 28; i++) {
       const x = -10 + (i % 7) * 3.3,
         z = -8 + Math.floor(i / 7) * 4.8;
-      box(x, 0.35, z, 1.5, 0.03, 0.035, 0xb8b49a);
+      box(x, 0.35, z, 1.5, 0.03, 0.035, surfaces.stone);
     }
     // Canal and embankment are raised separately to prevent coplanar surfaces.
-    box(14, -0.05, -1, 3.8, 0.2, 27, 0x679b98);
+    box(14, -0.05, -1, 3.8, 0.2, 27, surfaces.water);
     for (let z = -13; z < 13; z += 2)
-      box(11.9, 0.3, z, 0.32, 0.7, 1.8, 0xb1b5a0);
-    box(14, 0.7, -1, 4, 0.24, 3, 0xb59b72);
+      box(11.9, 0.3, z, 0.32, 0.7, 1.8, surfaces.stone);
+    box(14, 0.7, -1, 4, 0.24, 3, surfaces.wood);
     for (const z of [-2.3, 0.3]) {
-      box(14, 1.23, z, 4, 0.13, 0.12, 0x7d6850);
+      box(14, 1.23, z, 4, 0.13, 0.12, surfaces.darkWood);
       for (let x = 12.3; x < 16; x += 1)
-        box(x, 1, z, 0.13, 0.9, 0.13, 0x7d6850);
+        box(x, 1, z, 0.13, 0.9, 0.13, surfaces.wood);
     }
     if (index === 0) {
-      places.tea = [-3, -6];
+      places.tea = [-3, -5.4];
       places.friend = [6, -3];
       places.guard = [-5, 3];
       for (let z of [7.2, 8.8]) box(0, 0.35, z, 35, 0.15, 0.12, 0x666957);
@@ -575,8 +1121,8 @@ export function createWorld(root, onVisit) {
         ["exit", 4, "出口"],
       ]) {
         for (const side of [-1, 1])
-          box(x + side * 1.5, 1.8, -1, 0.22, 3, 0.25, 0x7b6243);
-        box(x, 3.5, -1, 3.5, 0.25, 0.85, pal.roof);
+          box(x + side * 1.5, 1.8, -1, 0.22, 3, 0.25, surfaces.wood);
+        box(x, 3.5, -1, 3.5, 0.25, 0.85, surfaces.roof);
         label(text, x, 3, -1, id, 0.85);
       }
     } else {
@@ -605,11 +1151,22 @@ export function createWorld(root, onVisit) {
             2.6,
             -5,
             2.8,
-            0.18,
+            0.045,
             2,
-            j % 2 ? 0xb7684c : 0x68816b,
+            surfaces.fabric(j % 2 ? 0xb7684c : 0x68816b),
           );
-          canopy.rotation.x = 0.12;
+          canopy.rotation.x = 0.08;
+          for (const side of [-1, 1])
+            for (const front of [-1, 1])
+              box(
+                -1 + j * 3.3 + side * 1.16,
+                1.43,
+                -5 + front * 0.75,
+                0.065,
+                2.25,
+                0.065,
+                surfaces.wood,
+              );
           for (let k = 0; k < 5; k++)
             orb(
               -1 + j * 3.3 + (k % 3) * 0.6 - 0.6,
@@ -620,34 +1177,65 @@ export function createWorld(root, onVisit) {
             );
           obstacles.push({ x: -1 + j * 3.3, z: -5, w: 2.8, d: 2 });
         }
-      places.tea = [-3, -4];
+      places.tea = [-3, -4.2];
       places.friend = [6, -3];
       places.guard = [-5, 3];
     }
     districtScenery(index);
-    const guard = person(-5, 3, 0x466e7a, "guard");
-    mesh(
-      new T.CylinderGeometry(0.28, 0.28, 0.12, 10),
-      0x314b52,
-      0,
-      1.68,
-      0,
-      guard,
-    );
-    const friend = person(6, -3, 0xb46d52, "friend");
-    mesh(
-      new T.CylinderGeometry(0.025, 0.025, 1.8, 6),
-      0x6d674e,
-      0.33,
-      1.3,
-      0,
-      friend,
-    );
-    mesh(new T.ConeGeometry(0.95, 0.38, 16), 0x527e9a, 0.33, 2.2, 0, friend);
-    person(3, 1, 0x7e9270, "resident");
+    const guard = person(-5, 2, 0x466e7a, "guard");
+    const friend = person(6, -4, 0xb46d52, "friend");
+    if (index === 0) {
+      mesh(
+        new T.CylinderGeometry(0.025, 0.025, 1.8, 6),
+        0x6d674e,
+        0.33,
+        1.3,
+        0,
+        friend,
+      );
+      const canopyProfile = [
+        [0, 0.3],
+        [0.3, 0.28],
+        [0.65, 0.17],
+        [1.02, 0.025],
+      ].map((p) => new T.Vector2(...p));
+      const umbrella = mesh(
+        new T.LatheGeometry(canopyProfile, 48),
+        surfaces.fabric(0x496c7a),
+        0.33,
+        2.08,
+        0,
+        friend,
+      );
+      umbrella.material.side = T.DoubleSide;
+      umbrella.name = "umbrella";
+      umbrella.userData.id = "friend";
+      hits.push(umbrella);
+      for (let rib = 0; rib < 8; rib++) {
+        const angle = (rib * Math.PI) / 4,
+          curve = new T.CatmullRomCurve3(
+            canopyProfile.map(
+              (p) =>
+                new T.Vector3(
+                  Math.sin(angle) * p.x,
+                  p.y,
+                  Math.cos(angle) * p.x,
+                ),
+            ),
+          );
+        mesh(
+          new T.TubeGeometry(curve, 12, 0.009, 5, false),
+          surfaces.bronze,
+          0.33,
+          2.075,
+          0,
+          friend,
+        );
+      }
+    }
+    person(3, 0, 0x7e9270, "resident");
     person(places.tea[0], places.tea[1] - 0.8, 0x94754f, "tea");
-    label("茶", -4, 2.7, -6, "tea", 0.62);
-    label("?", 3, 2.7, 1, "resident", 0.4);
+
     for (let i = 0; i < 4; i++) {
       const x = -1 + i * 2.6;
       const p = person(x, 3.8, [0xab8e56, 0x718b79, 0x92786a, 0x497b7b][i]);
@@ -658,7 +1246,7 @@ export function createWorld(root, onVisit) {
     for (let i = 0; i < 18; i++) {
       const x = -14 + (i % 9) * 3.3,
         z = i < 9 ? -13 : 12;
-      tree(x, z, 0.7 + (i % 3) * 0.2, [pal.leaf, 0x93a477, 0x628d75][i % 3]);
+      tree(x, z, 0.7 + (i % 3) * 0.2, [pal.leaf, 0x6e7c48, 0x496849][i % 3]);
     }
     tree(-11, -1, 0.8, pal.leaf);
     tree(10, -6, 0.8, pal.leaf);
@@ -672,7 +1260,8 @@ export function createWorld(root, onVisit) {
       animated.push({ kind: "cloud", o: cloud, x: cloud.position.x, phase: i });
     }
     player = person(-8, 3, 0xcf8c4b);
-    box(0, 0.8, -0.29, 0.48, 0.6, 0.2, 0x835c3e, player);
+    player.name = "player";
+
     marker = mesh(new T.RingGeometry(0.48, 0.63, 36), 0xd69c48, -5, 0.39, 3);
     marker.rotation.x = -Math.PI / 2;
     marker.material = new T.MeshBasicMaterial({
@@ -757,7 +1346,16 @@ export function createWorld(root, onVisit) {
     const path = pathTo(...point);
     if (!path) return false;
     route = path;
-    arrival = () => onVisit(id);
+    arrival = () => {
+      const actor = town.getObjectByName(id);
+      if (actor)
+        player.rotation.y = Math.atan2(
+          actor.position.x - player.position.x,
+          actor.position.z - player.position.z,
+        );
+      else if (id === "study") player.rotation.y = 0;
+      onVisit(id);
+    };
     if (!route.length) {
       arrival();
       arrival = null;
@@ -771,7 +1369,7 @@ export function createWorld(root, onVisit) {
     const w = root.clientWidth,
       h = root.clientHeight,
       a = w / h,
-      e = w < 700 ? 12.6 : 12;
+      e = h < 550 ? (w >= 600 ? 8.5 : 14) : w < 700 ? 12.6 : 12;
     camera.left = -e * a * zoom;
     camera.right = e * a * zoom;
     camera.top = e * zoom;
@@ -887,19 +1485,18 @@ export function createWorld(root, onVisit) {
       }
     }
     player.position.y =
-      0.32 + (walking && !reduced ? Math.abs(Math.sin(time * 11)) * 0.055 : 0);
+      0.32 + (walking && !reduced ? Math.abs(Math.sin(time * 10)) * 0.018 : 0);
+    characters.update(player, reduced ? 0 : dt, walking && !reduced);
     angle = reduced ? wanted : T.MathUtils.damp(angle, wanted, 8, dt);
     if (Math.abs(zoom - zoomTarget) > 0.001) {
       zoom = T.MathUtils.damp(zoom, zoomTarget, 9, dt);
       size();
     }
-    const mobile = root.clientWidth < 700;
+    const shortScreen = root.clientHeight < 550;
+    const landscape = shortScreen && root.clientWidth >= 600;
+    const mobile = root.clientWidth < 700 || shortScreen;
     focus.lerp(
-      new T.Vector3(
-        player.position.x * (mobile ? 0.8 : 0.28),
-        0,
-        player.position.z * (mobile ? 0.6 : 0.25) - 2,
-      ),
+      new T.Vector3(player.position.x, 0.85, player.position.z),
       1 - Math.exp(-dt * 4),
     );
     camera.position.set(
@@ -908,12 +1505,22 @@ export function createWorld(root, onVisit) {
       focus.z + Math.cos(angle) * 30,
     );
     camera.lookAt(focus);
-    if (mobile) {
+    // Reserve space for the bottom panel in portrait and the side panel in landscape.
+    if (landscape) {
+      camera.setViewOffset(
+        root.clientWidth,
+        root.clientHeight,
+        -Math.min(190, root.clientWidth * 0.27),
+        0,
+        root.clientWidth,
+        root.clientHeight,
+      );
+    } else if (mobile) {
       camera.setViewOffset(
         root.clientWidth,
         root.clientHeight,
         0,
-        root.clientHeight * 0.14,
+        root.clientHeight * (shortScreen ? 0.1 : 0.14),
         root.clientWidth,
         root.clientHeight,
       );
@@ -924,11 +1531,27 @@ export function createWorld(root, onVisit) {
           ? 0
           : Math.min(75, Math.max(0, time - 7) * 1.5);
       if (reduced) continue;
+      if (a.kind === "idle") {
+        characters.update(a.o, dt, false);
+        const distance = a.o.position.distanceTo(player.position);
+        if (distance < 4) {
+          const desired = Math.atan2(
+            player.position.x - a.o.position.x,
+            player.position.z - a.o.position.z,
+          );
+          const delta = Math.atan2(
+            Math.sin(desired - a.o.rotation.y),
+            Math.cos(desired - a.o.rotation.y),
+          );
+          a.o.rotation.y += delta * (1 - Math.exp(-dt * 2));
+        }
+      }
       if (a.kind === "walker") {
         a.o.position.x = a.x + Math.sin(time * 0.22 + a.phase) * 1.5;
         a.o.rotation.y =
           Math.cos(time * 0.22 + a.phase) > 0 ? Math.PI / 2 : -Math.PI / 2;
-        a.o.position.y = 0.32 + Math.abs(Math.sin(time * 6 + a.phase)) * 0.04;
+        a.o.position.y = 0.32 + Math.abs(Math.sin(time * 5 + a.phase)) * 0.015;
+        characters.update(a.o, dt, true);
       }
       if (a.kind === "steam") {
         const t = (time * 0.35 + a.phase) % 1.5;
@@ -946,6 +1569,7 @@ export function createWorld(root, onVisit) {
     renderer.render(scene, camera);
   });
   return {
+    ready: Promise.all([surfaces.ready, characters.ready]),
     visit,
     studyWord,
     clearStudy,

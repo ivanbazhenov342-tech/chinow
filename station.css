@@ -703,10 +703,6 @@ a {
   }
 }
 @media (max-height: 550px) {
-  .story-panel {
-    max-height: 70dvh;
-    width: 350px;
-  }
   .world-caption {
     display: none;
   }
@@ -826,5 +822,18 @@ a {
 @media (prefers-reduced-motion: reduce) {
   #world.arriving > canvas {
     animation: none;
+  }
+}
+
+@media (max-height: 550px) and (min-width: 600px) {
+  .story-panel {
+    max-height: 70dvh;
+    width: 350px;
+  }
+}
+@media (max-height: 550px) and (max-width: 599px) {
+  .story-panel {
+    max-height: 44dvh;
+    width: calc(100% - 24px);
   }
 }

@@ -1,0 +1,72 @@
+{
+  "wood": {
+    "asset": "fine_grained_wood",
+    "source": "https://polyhaven.com/a/fine_grained_wood",
+    "license": "CC0-1.0",
+    "files": {
+      "color": "wood-color.jpg",
+      "normal": "wood-normal.jpg",
+      "roughness": "wood-roughness.jpg"
+    }
+  },
+  "plaster": {
+    "asset": "plastered_wall_02",
+    "source": "https://polyhaven.com/a/plastered_wall_02",
+    "license": "CC0-1.0",
+    "files": {
+      "color": "plaster-color.jpg",
+      "normal": "plaster-normal.jpg",
+      "roughness": "plaster-roughness.jpg"
+    }
+  },
+  "roof": {
+    "asset": "grey_roof_tiles",
+    "source": "https://polyhaven.com/a/grey_roof_tiles",
+    "license": "CC0-1.0",
+    "files": {
+      "color": "roof-color.jpg",
+      "normal": "roof-normal.jpg",
+      "roughness": "roof-roughness.jpg"
+    }
+  },
+  "stone": {
+    "asset": "floor_pavement",
+    "source": "https://polyhaven.com/a/floor_pavement",
+    "license": "CC0-1.0",
+    "files": {
+      "color": "stone-color.jpg",
+      "normal": "stone-normal.jpg",
+      "roughness": "stone-roughness.jpg"
+    }
+  },
+  "cloth": {
+    "asset": "rough_linen",
+    "source": "https://polyhaven.com/a/rough_linen",
+    "license": "CC0-1.0",
+    "files": {
+      "color": "cloth-color.jpg",
+      "normal": "cloth-normal.jpg",
+      "roughness": "cloth-roughness.jpg"
+    }
+  },
+  "bark": {
+    "asset": "chinese_cedar_bark",
+    "source": "https://polyhaven.com/a/chinese_cedar_bark",
+    "license": "CC0-1.0",
+    "files": {
+      "color": "bark-color.jpg",
+      "normal": "bark-normal.jpg",
+      "roughness": "bark-roughness.jpg"
+    }
+  },
+  "ground": {
+    "asset": "leafy_grass",
+    "source": "https://polyhaven.com/a/leafy_grass",
+    "license": "CC0-1.0",
+    "files": {
+      "color": "ground-color.jpg",
+      "normal": "ground-normal.jpg",
+      "roughness": "ground-roughness.jpg"
+    }
+  }
+}

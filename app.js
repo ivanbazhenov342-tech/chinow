@@ -1,4 +1,4 @@
-import { createWorld } from "./world.js?v=3";
+import { createWorld } from "./world.js?v=4";
 const $ = (id) => document.getElementById(id);
 const districts = [
   [
@@ -147,17 +147,18 @@ function learn(word) {
   }
   save();
 }
-let currentAudio = null;
-function hear(word, onEnd) {
+const currentAudio = new Audio();
+function hear(word, speed = 1) {
   if (!audioWords.has(word)) {
     toast(
       "Для этого слова запись ещё готовится. Произношение указано в пиньине.",
     );
     return;
   }
-  currentAudio?.pause();
-  currentAudio = new Audio("./audio/" + encodeURIComponent(word) + ".mp3");
-  if (onEnd) currentAudio.onended = onEnd;
+  currentAudio.pause();
+  currentAudio.src = "./audio/" + encodeURIComponent(word) + ".mp3";
+  currentAudio.playbackRate = speed;
+  currentAudio.preservesPitch = true;
   currentAudio
     .play()
     .catch(() =>
@@ -978,7 +979,12 @@ function lessonScreen() {
   }
   if (run.stage === "dialogue") {
     const body = stageBody("Встреча в городе");
-    speakButton(body, "dialogue-" + l.id, "Слушать разговор");
+    if (audioWords.has("dialogue-" + l.id)) {
+      const audioRow = node("div", undefined, "row");
+      speakButton(audioRow, "dialogue-" + l.id, "Слушать разговор");
+      addButton(audioRow, "Медленнее", () => hear("dialogue-" + l.id, 0.8));
+      body.append(audioRow);
+    }
     body.append(node("h3", quests[l.id].name), node("p", quests[l.id].setup));
     l.dialogue.forEach((line, i) => {
       const block = node("div", undefined, "rule");
@@ -1012,6 +1018,7 @@ function lessonScreen() {
   if (run.stage === "grammar") {
     const body = stageBody("Пойми собеседника");
     body.append(node("h3", l.q));
+    speakButton(body, "dialogue-" + l.id, "Послушать разговор");
     const message = node("div", "", "lesson-message"),
       options = node("div", undefined, "options");
     shuffled(l.options).forEach((option) =>
@@ -1643,7 +1650,15 @@ function about() {
       "intro-copy",
     ),
   );
+  body.append(
+    node(
+      "p",
+      "В игре используются записи носителя Yue Tan и синтез голоса Ladaisy через ElevenLabs. Разговоры доступны в обычном и замедленном темпе.",
+      "intro-copy",
+    ),
+  );
   const links = [
+    ["Происхождение аудио и сверенные тексты", "./audio/sources.json"],
     [
       "Записи носителей — Yue Tan и audio-cmn, CC BY-SA 3.0 US",
       "https://github.com/hugolpz/audio-cmn",
@@ -1721,7 +1736,7 @@ $("zoom-out").onclick = () => world?.zoom(0.15);
 try {
   const results = await Promise.all([
     fetch("./curriculum.json"),
-    fetch("./audio/manifest.json?v=3"),
+    fetch("./audio/manifest.json?v=4"),
     fetch("./quests.json"),
   ]);
   if (results.some((r) => !r.ok)) throw Error("course");

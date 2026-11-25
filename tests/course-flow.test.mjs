@@ -19,6 +19,8 @@ dialog.showModal = () => {
 dialog.close = () => {
   dialog.open = false;
 };
+const playbackRates = [];
+let audioInstances = 0;
 let quiz,
   pendingData = 0;
 window.HanziWriter = {
@@ -51,7 +53,11 @@ const context = {
   window,
   console,
   Audio: class {
+    constructor() {
+      audioInstances++;
+    }
     play() {
+      playbackRates.push(this.playbackRate);
       return Promise.resolve();
     }
     pause() {}
@@ -206,6 +212,10 @@ for (const l of game.course) {
   assert.ok(meeting);
   meeting.click();
   assert.equal(game.run.stage, "dialogue");
+  if (game.words.has("dialogue-" + l.id)) {
+    click("Медленнее");
+    assert.equal(playbackRates.at(-1), 0.8);
+  }
   click("Помочь жителю");
   click(l.options[0]);
   click("Собрать фразу");
@@ -305,3 +315,42 @@ assert.equal(
 );
 assert.ok(sources.synthetic.every((word) => !sources.native.includes(word)));
 console.log("PASS first-chapter audio coverage and recording provenance");
+
+for (const lesson of game.course) {
+  for (const word of lesson.words)
+    assert.ok(game.words.has(word.hanzi), "Missing study audio " + word.hanzi);
+}
+const normal = (text) => text.replace(/[^\u3400-\u9fff]/g, "");
+const wordsByText = new Map(
+  game.course.flatMap((l) => l.words).map((w) => [w.hanzi, w]),
+);
+for (const [id, text] of Object.entries(sources.checked_transcripts || {})) {
+  const expected = id.startsWith("dialogue-")
+    ? game.course[Number(id.slice(9))].dialogue
+        .map((line) => line.hanzi)
+        .join("")
+    : wordsByText.get(id)?.hanzi;
+  assert.ok(expected, "Transcript has no lesson or word " + id);
+  assert.equal(
+    normal(text),
+    normal(expected),
+    "Transcript differs from study content " + id,
+  );
+}
+console.log(
+  "PASS complete vocabulary audio coverage and checked transcript matching",
+);
+
+assert.equal(audioInstances, 2, "One reusable audio element per page load");
+
+for (const lesson of game.course) {
+  assert.ok(
+    game.words.has("dialogue-" + lesson.id),
+    "Missing conversation audio " + lesson.id,
+  );
+  assert.ok(
+    sources.checked_transcripts["dialogue-" + lesson.id],
+    "Conversation not checked " + lesson.id,
+  );
+}
+console.log("PASS all 72 conversation recordings and playback controls");

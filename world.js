@@ -118,7 +118,7 @@ export function createWorld(root, onVisit) {
     ctx.strokeStyle = "#8c775d";
     ctx.lineWidth = 4;
     ctx.strokeRect(14, 14, 484, 164);
-    ctx.font = Math.min(76, 440 / Array.from(text).length) + "px serif";
+    ctx.font = Math.min(136, 440 / Array.from(text).length) + "px serif";
     ctx.fillStyle = "#344448";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";

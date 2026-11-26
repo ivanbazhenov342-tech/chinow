@@ -1,4 +1,4 @@
-import { createWorld } from "./world.js?v=7";
+import { createWorld } from "./world.js?v=8";
 const $ = (id) => document.getElementById(id);
 const districts = [
   [

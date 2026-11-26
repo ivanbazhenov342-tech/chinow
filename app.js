@@ -1,4 +1,4 @@
-import { createWorld } from "./world.js?v=6";
+import { createWorld } from "./world.js?v=7";
 const $ = (id) => document.getElementById(id);
 const districts = [
   [
@@ -318,8 +318,8 @@ function drawCityMap(canvas, positions) {
   if (!ctx) return;
   ctx.scale(2, 2);
   const gradient = ctx.createLinearGradient(0, 0, 1000, 720);
-  gradient.addColorStop(0, "#c7d6b7");
-  gradient.addColorStop(1, "#e8dfbe");
+  gradient.addColorStop(0, "#e6d7b8");
+  gradient.addColorStop(1, "#f0e5cc");
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, 1000, 720);
   function random(n) {
@@ -330,16 +330,16 @@ function drawCityMap(canvas, positions) {
   ctx.moveTo(680, -20);
   ctx.bezierCurveTo(620, 120, 740, 220, 570, 340);
   ctx.bezierCurveTo(420, 450, 550, 560, 430, 750);
-  ctx.strokeStyle = "#a9c3b1";
+  ctx.strokeStyle = "#9aaea6";
   ctx.lineWidth = 79;
   ctx.stroke();
-  ctx.strokeStyle = "#79a6a0";
+  ctx.strokeStyle = "#809e9b";
   ctx.lineWidth = 58;
   ctx.stroke();
   for (let i = 0; i < 90; i++) {
     const x = random(i + 3) * 1000,
       y = random(i + 94) * 720;
-    ctx.fillStyle = ["#829b71", "#9cac78", "#6b8f70"][i % 3];
+    ctx.fillStyle = ["#8c966e", "#a2a271", "#718674"][i % 3];
     ctx.beginPath();
     ctx.ellipse(
       x,
@@ -357,11 +357,14 @@ function drawCityMap(canvas, positions) {
       y = random(i + 34) * 700,
       w = 10 + random(i + 12) * 14;
     if (x > 480 && x < 680) continue;
-    ctx.fillStyle = "#b7ad87";
+    ctx.fillStyle = "#a59d82";
     ctx.fillRect(x + 3, y + 4, w, 12);
-    ctx.fillStyle = "#ecdbb4";
+    ctx.fillStyle = "#e6cfa9";
     ctx.fillRect(x, y, w, 12);
-    ctx.fillStyle = ["#6c8272", "#788475", "#9a7b61"][i % 3];
+    ctx.strokeStyle = "#52636480";
+    ctx.lineWidth = 0.8;
+    ctx.strokeRect(x, y, w, 12);
+    ctx.fillStyle = ["#52676b", "#687878", "#8e7563"][i % 3];
     ctx.beginPath();
     ctx.moveTo(x - 3, y);
     ctx.lineTo(x + w / 2, y - 8);
@@ -377,11 +380,11 @@ function drawCityMap(canvas, positions) {
     ctx.moveTo(x, y);
     ctx.bezierCurveTo(x, (y + ny) / 2, nx, (y + ny) / 2, nx, ny);
     ctx.lineWidth = 13;
-    ctx.strokeStyle = "#eee5c8";
+    ctx.strokeStyle = "#f5ebd5";
     ctx.setLineDash([]);
     ctx.stroke();
     ctx.lineWidth = 2;
-    ctx.strokeStyle = unlocked(i) ? "#9b7b50" : "#afb29a";
+    ctx.strokeStyle = unlocked(i) ? "#9d6b50" : "#afb29a";
     ctx.setLineDash([3, 7]);
     ctx.stroke();
   }
@@ -396,12 +399,15 @@ function drawCityMap(canvas, positions) {
       ctx.fillStyle = fog;
       ctx.fillRect(x - 130, y - 130, 260, 260);
     }
-  ctx.fillStyle = "#344e3a";
+  ctx.fillStyle = "#3d5559";
   ctx.font = "26px serif";
   ctx.fillText("山江", 30, 43);
   ctx.font = "13px sans-serif";
   ctx.fillStyle = "#5d7459";
-  ctx.fillText("Шаньцзян", 30, 65);
+  ctx.fillText("Шаньцзян · Путевой дневник", 30, 65);
+  ctx.strokeStyle = "#8b8d7466";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(12, 12, 976, 696);
 }
 const intro = [
   [
@@ -550,6 +556,7 @@ function renderQuest() {
 function renderStory() {
   $("feedback").textContent = introFeedback;
   $("speech").replaceChildren();
+  delete $("speech").dataset.speaker;
   $("actions").replaceChildren();
   if (state.intro < 12 && activeDistrict === 0) {
     const s = intro[state.intro];
@@ -807,6 +814,7 @@ function linSpeech() {
 }
 function speech(hanzi, pinyin, ru) {
   const s = $("speech");
+  if (state.intro < 12) s.dataset.speaker = state.intro < 3 ? "guard" : "lin";
   s.append(
     node("div", hanzi, "hanzi"),
     node("div", pinyin, "pinyin"),
@@ -987,7 +995,15 @@ function lessonScreen() {
     }
     body.append(node("h3", quests[l.id].name), node("p", quests[l.id].setup));
     l.dialogue.forEach((line, i) => {
-      const block = node("div", undefined, "rule");
+      const block = node("div", undefined, "rule dialogue-line");
+      const portrait = node(
+        "span",
+        undefined,
+        "portrait portrait-" +
+          (i ? "traveler" : quests[l.id].npc === "guard" ? "guard" : "lin"),
+      );
+      portrait.setAttribute("aria-hidden", "true");
+      block.append(portrait);
       block.append(
         node("small", i ? "Твой ответ" : quests[l.id].name),
         node("h3", line.hanzi),
@@ -1667,8 +1683,14 @@ function about() {
       "Данные письма — Make Me a Hanzi, Arphic Public License",
       "./hanzi/ARPHICPL.TXT",
     ],
-    ["Фотосканированные материалы — Poly Haven, CC0", "./textures/manifest.json"],
-    ["Модели персонажей — Microsoft Rocketbox, MIT", "./models/LICENSE-Rocketbox.txt"],
+    [
+      "Рисованные материалы и портреты — оформление Шаньцзяна",
+      "./textures/manifest.json",
+    ],
+    [
+      "Модели персонажей — Microsoft Rocketbox, MIT",
+      "./models/LICENSE-Rocketbox.txt",
+    ],
     ["Three.js — MIT", "./vendor/LICENSE-three"],
     ["Hanzi Writer — MIT", "./vendor/LICENSE-hanzi-writer"],
   ];
@@ -1727,6 +1749,11 @@ function about() {
   row.append(input);
   body.append(row);
 }
+$("mission-toggle").onclick = () => {
+  const collapsed = $("story-panel").classList.toggle("collapsed");
+  $("mission-toggle").textContent = collapsed ? "Развернуть" : "Свернуть";
+  $("mission-toggle").setAttribute("aria-expanded", String(!collapsed));
+};
 $("map-button").onclick = map;
 $("home").onclick = map;
 $("book-button").onclick = () => notebook();

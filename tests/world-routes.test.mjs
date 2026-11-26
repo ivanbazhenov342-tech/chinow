@@ -1,6 +1,9 @@
 import "./model-fixture.mjs";
 import { createSurfaces } from "../materials.js";
 import { createCharacters } from "../characters.js";
+import { inkMaterial, copyInk, inkEdges } from "../art.js";
+import { drawNeighborhood } from "../neighborhood.js";
+import { mergeGeometries } from "../vendor/BufferGeometryUtils.js";
 import * as Three from "../vendor/three.module.js";
 import { parseHTML } from "linkedom";
 import { readFile } from "node:fs/promises";
@@ -71,8 +74,13 @@ const source = (await readFile(new URL("../world.js", import.meta.url), "utf8"))
   .replace("export function", "function");
 const create = runInNewContext(source + "\ncreateWorld", {
   T,
+  mergeGeometries,
   createSurfaces,
   createCharacters,
+  inkMaterial,
+  copyInk,
+  inkEdges,
+  drawNeighborhood,
   document,
   console,
   devicePixelRatio: 1,
@@ -112,6 +120,34 @@ const human = lastScene.getObjectByName("friend").userData.human;
 assert.equal(human.walk.getClip().name, "Walk");
 assert.equal(human.idle.getClip().name, "Idle");
 console.log("PASS fixed volumetric signs and actual skinned character assets");
+// Buildings that cover the traveler should fade independently at every camera orientation.
+world.visit("tea");
+for (let frame = 0; frame < 400; frame++) animate();
+visited.pop();
+let observedFade = false;
+for (let angle = 0; angle < 8; angle++) {
+  world.rotate(Math.PI / 4);
+  for (let frame = 0; frame < 80; frame++) animate();
+  let opaque = 0,
+    faded = 0;
+  lastScene.traverse((o) => {
+    if (o.userData.architecture) {
+      if (o.material.opacity < 0.3) faded++;
+      if (o.material.opacity > 0.99) opaque++;
+      assert.ok(
+        o.material.isMeshToonMaterial,
+        "Facade must use the illustrated lighting",
+      );
+    }
+  });
+  if (faded) {
+    observedFade = true;
+    assert.ok(opaque > 0, "Occlusion must not fade all buildings");
+  }
+}
+assert.ok(observedFade, "No obstructing facade faded during camera rotation");
+console.log("PASS independent architectural occlusion and toon materials");
+
 for (let district = 0; district < 12; district++) {
   world.district(district);
   for (const id of ["guard", "exit", "friend", "tea", "resident"]) {

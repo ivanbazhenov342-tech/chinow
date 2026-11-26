@@ -7,5 +7,6 @@
     "traveler": "Assets/Avatars/Adults/Male_Adult_16",
     "lo": "Assets/Avatars/Professions/Wood_Male_01"
   },
-  "changes": "FBX to GLB; 1024px texture atlases; PBR materials; relaxed arm pose; authored Idle and Walk skeletal animation. See tools/prepare-characters.py."
+  "changes": "FBX to GLB; 1024px texture atlases; PBR materials; relaxed arm pose; authored Idle and Walk skeletal animation. See tools/prepare-characters.py.",
+  "runtime_style": "Original texture atlases are softened, palette-quantized and recolored in toon shaders; normal/specular maps are not used. Drawn silhouettes follow the same animated skeleton."
 }

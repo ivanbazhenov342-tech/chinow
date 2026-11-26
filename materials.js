@@ -1,63 +1,61 @@
-// Local, photographed CC0 surface maps. All texture requests stay on the Pages origin.
+import { inkMaterial, copyInk } from "./art.js?v=7";
+
 export function createSurfaces(T, renderer) {
   const manager = new T.LoadingManager();
-  const failed = [];
-  const ready = new Promise((resolve) => {
-    manager.onLoad = () => resolve(failed);
-    manager.onError = (url) => failed.push(url);
+  const ready = new Promise((resolve, reject) => {
+    manager.onLoad = resolve;
+    manager.onError = (url) =>
+      reject(new Error("Material unavailable: " + url));
   });
-  const loader = new T.TextureLoader(manager);
-  const anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
-  function maps(name, repeat = 1) {
-    const load = (kind, color = false) => {
-      const texture = loader.load("./textures/" + name + "-" + kind + ".jpg");
-      texture.wrapS = texture.wrapT = T.RepeatWrapping;
-      texture.repeat.set(repeat, repeat);
-      texture.anisotropy = anisotropy;
-      if (color) texture.colorSpace = T.SRGBColorSpace;
-      return texture;
-    };
-    return {
-      map: load("color", true),
-      normalMap: load("normal"),
-      roughnessMap: load("roughness"),
-    };
-  }
-  function surface(name, color, scale, normalStrength = 0.55) {
-    const result = new T.MeshStandardMaterial({
-      ...maps(name),
+  const atlas = new T.TextureLoader(manager).load(
+    "./textures/painted-atlas.webp",
+  );
+  atlas.colorSpace = T.SRGBColorSpace;
+  atlas.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+  atlas.wrapS = atlas.wrapT = T.ClampToEdgeWrapping;
+  // Four deliberately broad light bands, with a soft illustrated shadow color.
+  const gradient = new T.DataTexture(
+    new Uint8Array([105, 161, 211, 248]),
+    4,
+    1,
+    T.RedFormat,
+  );
+  gradient.minFilter = gradient.magFilter = T.NearestFilter;
+  gradient.generateMipmaps = false;
+  gradient.needsUpdate = true;
+  const colors = new Map(),
+    fabrics = new Map(),
+    walls = new Map();
+  const solid = (color) => {
+    if (!colors.has(color))
+      colors.set(color, inkMaterial(T, { color, gradientMap: gradient }));
+    return colors.get(color);
+  };
+  function surface(region, color, scale) {
+    const result = inkMaterial(T, {
+      map: atlas,
       color,
-      roughness: 1,
-      normalScale: new T.Vector2(normalStrength, normalStrength),
+      gradientMap: gradient,
+      atlasRegion: region,
     });
     result.userData.uvScale = scale;
     return result;
   }
-  const wood = surface("wood", 0xb59672, 0.8);
-  const darkWood = wood.clone();
-  darkWood.color.setHex(0x66503b);
-  const signWood = wood.clone();
-  signWood.color.setHex(0x344d44);
-  const plaster = surface("plaster", 0xf0e4cd, 0.55, 0.38);
-  const roof = surface("roof", 0x8b9188, 0.7, 0.85);
-  const stone = surface("stone", 0xbbb5a1, 0.65, 0.8);
-  const bark = surface("bark", 0xa89a80, 1.2, 0.8);
-  const ground = surface("ground", 0xa6aa7e, 0.32, 0.6);
-  const clothMaps = maps("cloth", 3);
-  const clothes = new Map();
-  const walls = new Map();
+  // Texture origin is at the bottom-left in WebGL; all regions share one image.
+  const wood = surface([0, 0], 0xf3ddbc, 0.28);
+  const darkWood = copyInk(wood);
+  darkWood.color.setHex(0x806d5d);
+  const signWood = surface([0, 0.5], 0xf6e9c8, 0.1);
+  const plaster = surface([0, 0.5], 0xfff1d6, 0.2);
+  const roof = surface([0.5, 0.5], 0xe0e5e4, 0.5);
+  const stone = surface([0.5, 0], 0xe8e0d2, 0.34);
+  const bark = copyInk(wood);
+  bark.color.setHex(0x9d9179);
+  bark.userData.uvScale = 0.5;
   return {
-    paintedMetal: new T.MeshStandardMaterial({
-      color: 0x36544a,
-      roughness: 0.38,
-      metalness: 0.38,
-    }),
-    iron: new T.MeshStandardMaterial({
-      color: 0x343c38,
-      roughness: 0.55,
-      metalness: 0.7,
-    }),
     ready,
+    gradient,
+    solid,
     wood,
     darkWood,
     signWood,
@@ -65,56 +63,29 @@ export function createSurfaces(T, renderer) {
     roof,
     stone,
     bark,
-    ground,
-    skin: new T.MeshPhysicalMaterial({
-      color: 0xcfa786,
-      roughness: 0.64,
-      clearcoat: 0.08,
-      clearcoatRoughness: 0.7,
-    }),
-    bronze: new T.MeshStandardMaterial({
-      color: 0x8c6a38,
-      roughness: 0.45,
-      metalness: 0.72,
-    }),
-    ceramic: new T.MeshPhysicalMaterial({
-      color: 0xc6d5c3,
-      roughness: 0.2,
-      clearcoat: 0.8,
-      clearcoatRoughness: 0.25,
-    }),
-    water: new T.MeshStandardMaterial({
-      color: 0x597e78,
-      roughness: 0.18,
-      metalness: 0.3,
-    }),
-    glass: new T.MeshPhysicalMaterial({
-      color: 0x8bafa2,
-      roughness: 0.16,
-      metalness: 0.08,
+    ground: solid(0x9d9c80),
+    paintedMetal: solid(0x4f716c),
+    iron: solid(0x39474b),
+    skin: solid(0xd5ac8d),
+    bronze: solid(0xb69462),
+    ceramic: solid(0xacc0af),
+    water: new T.MeshPhongMaterial({
+      color: 0x73928c,
+      shininess: 65,
       transparent: true,
-      opacity: 0.72,
+      opacity: 0.8,
     }),
+    glass: new T.MeshBasicMaterial({ color: 0xcda76b }),
+    windowDark: solid(0x465c5e),
     fabric(color) {
-      if (!clothes.has(color)) {
-        const material = new T.MeshPhysicalMaterial({
-          ...clothMaps,
-          color,
-          roughness: 1,
-          normalScale: new T.Vector2(0.3, 0.3),
-          sheen: 0.35,
-          sheenRoughness: 0.8,
-          sheenColor: new T.Color(0xd8cbb4),
-        });
-        clothes.set(color, material);
-      }
-      return clothes.get(color);
+      if (!fabrics.has(color)) fabrics.set(color, solid(color));
+      return fabrics.get(color);
     },
     wall(color) {
       if (!walls.has(color)) {
-        const material = plaster.clone();
-        material.color.setHex(color);
-        walls.set(color, material);
+        const mat = copyInk(plaster);
+        mat.color.setHex(color);
+        walls.set(color, mat);
       }
       return walls.get(color);
     },

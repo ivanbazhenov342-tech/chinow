@@ -6,13 +6,13 @@
       name="viewport"
       content="width=device-width,initial-scale=1,viewport-fit=cover"
     />
-    <meta name="theme-color" content="#263e38" />
+    <meta name="theme-color" content="#34464a" />
     <meta
       name="description"
       content="Шаньцзян — путешествие по живому китайскому городу. Китайский с первых слов до бытовых разговоров через игровые истории."
     />
     <title>Шаньцзян · Маленькие шаги в большой мир</title>
-    <link rel="stylesheet" href="./station.css?v=6" />
+    <link rel="stylesheet" href="./station.css?v=7" />
   </head>
   <body>
     <main id="world" aria-label="Игровой мир Шаньцзяна">
@@ -31,8 +31,16 @@
         >
       </button>
       <nav aria-label="Путешествие">
-        <button id="map-button">Карта</button>
-        <button id="book-button">Блокнот <span id="word-count">0</span></button>
+        <button id="map-button">
+          <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="m3 5 6-2 6 2 6-2v16l-6 2-6-2-6 2Z M9 3v16 M15 5v16" /></svg
+          >Карта
+        </button>
+        <button id="book-button">
+          <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M5 3h14v18H5z M8 3v18 M11 8h5 M11 12h5" /></svg
+          >Дневник <span id="word-count">0</span>
+        </button>
       </nav>
     </header>
     <div class="world-caption" aria-hidden="true">
@@ -48,9 +56,18 @@
     <aside class="story-panel" id="story-panel" aria-label="Текущая миссия">
       <div class="story-top">
         <span class="eyebrow" id="eyebrow">Глава первая</span
-        ><button class="quiet" id="help-button" aria-label="Как играть">
-          ?
-        </button>
+        ><span class="story-tools"
+          ><button
+            class="quiet"
+            id="mission-toggle"
+            aria-expanded="true"
+            aria-controls="story-title story-text speech actions"
+          >
+            Свернуть</button
+          ><button class="quiet" id="help-button" aria-label="Как играть">
+            ?
+          </button></span
+        >
       </div>
       <div class="progress-track"><span id="story-progress"></span></div>
       <h1 id="story-title">Добро пожаловать в Шаньцзян</h1>
@@ -71,6 +88,6 @@
       <div id="overlay-content"></div>
     </dialog>
     <script src="./vendor/hanzi-writer.min.js"></script>
-    <script type="module" src="./app.js?v=6"></script>
+    <script type="module" src="./app.js?v=7"></script>
   </body>
 </html>

@@ -1,4 +1,0 @@
-Poly Haven texture assets are released under CC0 1.0 Universal.
-https://polyhaven.com/license
-https://creativecommons.org/publicdomain/zero/1.0/
-Asset sources and file names are recorded in manifest.json.

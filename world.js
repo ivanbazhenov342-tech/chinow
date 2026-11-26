@@ -1,12 +1,17 @@
 import * as T from "./vendor/three.module.js";
-import { createSurfaces } from "./materials.js?v=6";
-import { createCharacters } from "./characters.js?v=6";
+import { mergeGeometries } from "./vendor/BufferGeometryUtils.js";
+import { createSurfaces } from "./materials.js?v=7";
+import { createCharacters } from "./characters.js?v=7";
+
+import { inkMaterial, copyInk, inkEdges } from "./art.js?v=7";
+
+import { drawNeighborhood } from "./neighborhood.js?v=7";
 
 const palettes = [
-  { wall: 0xe8d6b3, roof: 0x3a625b, leaf: 0x536b42 },
-  { wall: 0xe9d6b8, roof: 0x42665a, leaf: 0x667742 },
-  { wall: 0xe8c8ab, roof: 0x776256, leaf: 0x506941 },
-  { wall: 0xf0d6b3, roof: 0x4c6d6c, leaf: 0x476c46 },
+  { wall: 0xf5e2bd, roof: 0x3a625b, leaf: 0x536b42 },
+  { wall: 0xe4d6b7, roof: 0x42665a, leaf: 0x667742 },
+  { wall: 0xe6c3a6, roof: 0x776256, leaf: 0x506941 },
+  { wall: 0xe9dec6, roof: 0x4c6d6c, leaf: 0x476c46 },
 ];
 export function createWorld(root, onVisit) {
   const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -15,13 +20,13 @@ export function createWorld(root, onVisit) {
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = T.PCFSoftShadowMap;
   renderer.outputColorSpace = T.SRGBColorSpace;
-  renderer.toneMapping = T.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.05;
+  renderer.toneMapping = T.NoToneMapping;
+  renderer.toneMappingExposure = 1;
   root.prepend(renderer.domElement);
   const scene = new T.Scene();
-  scene.fog = new T.FogExp2(0xb8c6be, 0.008);
+  scene.fog = new T.FogExp2(0xc4c7be, 0.012);
   const camera = new T.OrthographicCamera(-15, 15, 12, -12, 0.1, 160);
-  const sunlight = new T.DirectionalLight(0xffeccf, 3.2);
+  const sunlight = new T.DirectionalLight(0xffe5bc, 2.0);
   sunlight.position.set(-14, 28, 14);
   sunlight.castShadow = true;
   const shadowSize = root.clientWidth < 700 ? 1024 : 2048;
@@ -37,12 +42,16 @@ export function createWorld(root, onVisit) {
   sunlight.shadow.camera.updateProjectionMatrix();
   sunlight.shadow.normalBias = 0.045;
   sunlight.shadow.bias = -0.0001;
-  scene.add(sunlight, new T.HemisphereLight(0xdce8ee, 0x71664c, 0.85));
+  scene.add(sunlight, new T.HemisphereLight(0xc6d8df, 0xa29377, 1.35));
   const cube = new T.BoxGeometry(),
     sphere = new T.SphereGeometry(1, 24, 16);
-  const materials = new Map();
   const surfaces = createSurfaces(T, renderer);
-  const characters = createCharacters(renderer);
+  const characters = createCharacters(renderer, surfaces.gradient);
+  let architectures = [],
+    occluders = [];
+  const occlusionRay = new T.Raycaster();
+  let occlusionKey = "",
+    covering = new Set();
   let town = new T.Group(),
     hits = [],
     obstacles = [],
@@ -63,13 +72,9 @@ export function createWorld(root, onVisit) {
     if (color?.isMaterial) return color;
     if (woodColors.has(color)) return surfaces.wood;
     if (color === 0x819d8d || color === 0xaeb49a) return surfaces.stone;
-    if (!materials.has(color))
-      materials.set(
-        color,
-        new T.MeshStandardMaterial({ color, roughness: 0.85 }),
-      );
-    return materials.get(color);
+    return surfaces.solid(color);
   }
+
   function mesh(geometry, color, x, y, z, parent = town) {
     const o = new T.Mesh(geometry, material(color));
     o.position.set(x, y, z);
@@ -96,6 +101,8 @@ export function createWorld(root, onVisit) {
     }
     const object = mesh(geometry, mat, x, y, z, parent);
     if (!mat.map) object.scale.set(w, h, d);
+    if (h > 0.55 && w > 0.65 && d > 0.1 && Math.max(w, h, d) < 10)
+      inkEdges(T, object, 0.26);
     return object;
   }
   function orb(x, y, z, r, color, parent) {
@@ -108,22 +115,21 @@ export function createWorld(root, onVisit) {
     canvas.width = 512;
     canvas.height = 192;
     const ctx = canvas.getContext("2d");
-    ctx.strokeStyle = "#d6bd83";
+    ctx.strokeStyle = "#8c775d";
     ctx.lineWidth = 4;
     ctx.strokeRect(14, 14, 484, 164);
     ctx.font = Math.min(76, 440 / Array.from(text).length) + "px serif";
-    ctx.fillStyle = "#f0e2bd";
+    ctx.fillStyle = "#344448";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(text, 256, 102);
     const texture = new T.CanvasTexture(canvas);
     texture.colorSpace = T.SRGBColorSpace;
     texture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
-    const paint = new T.MeshStandardMaterial({
+    const paint = new T.MeshBasicMaterial({
       map: texture,
       transparent: true,
       alphaTest: 0.06,
-      roughness: 0.85,
       depthWrite: false,
     });
     paint.userData.signFace = true;
@@ -170,6 +176,7 @@ export function createWorld(root, onVisit) {
   }
   function lantern(x, y, z, parent = town) {
     const group = new T.Group();
+    group.userData.isMotionRoot = true;
     group.position.set(x, y + 0.4, z);
     parent.add(group);
     mesh(
@@ -231,6 +238,7 @@ export function createWorld(root, onVisit) {
         0,
         group,
       );
+    batchArtwork(group, false);
     animated.push({ kind: "lantern", o: group, phase: x + z });
   }
   function roofGeometry(width, depth) {
@@ -253,7 +261,7 @@ export function createWorld(root, onVisit) {
           0.72 * hip * (1 - u) +
           0.17 * Math.pow(v, 6) * Math.pow(u, 4);
         positions.push(x, y, z);
-        uv.push(x * 0.7, Math.abs(z) * 0.7);
+        uv.push(x * 0.22, Math.abs(z) * 0.35);
         if (row < rows && column < columns) {
           const a = row * (columns + 1) + column,
             b = a + 1,
@@ -305,6 +313,193 @@ export function createWorld(root, onVisit) {
     geometry.computeVertexNormals();
     return geometry;
   }
+  function archFrame(group, x, y, z, width, height, color) {
+    const radius = width / 2,
+      spring = y + height - radius;
+    const points = [
+      new T.Vector3(x - radius, y, z),
+      new T.Vector3(x - radius, spring, z),
+    ];
+    for (let i = 0; i <= 16; i++) {
+      const a = Math.PI - (i * Math.PI) / 16;
+      points.push(
+        new T.Vector3(
+          x + Math.cos(a) * radius,
+          spring + Math.sin(a) * radius,
+          z,
+        ),
+      );
+    }
+    points.push(new T.Vector3(x + radius, y, z));
+    mesh(
+      new T.TubeGeometry(new T.CatmullRomCurve3(points), 32, 0.065, 6, false),
+      color,
+      0,
+      0,
+      0,
+      group,
+    );
+  }
+  function plantPot(x, y, z, scale = 1, parent = town) {
+    const pot = mesh(
+      new T.CylinderGeometry(0.23, 0.16, 0.34, 10),
+      surfaces.solid(0xb28468),
+      x,
+      y + 0.17 * scale,
+      z,
+      parent,
+    );
+    pot.scale.setScalar(scale);
+    for (let i = 0; i < 5; i++) {
+      const leaf = orb(
+        x + Math.sin(i * 2.4) * 0.14 * scale,
+        y + 0.43 * scale + (i % 2) * 0.12 * scale,
+        z + Math.cos(i * 2.4) * 0.14 * scale,
+        0.17 * scale,
+        [0x75845a, 0x8c9762, 0x667d5c][i % 3],
+        parent,
+      );
+      leaf.scale.y = 1.55;
+    }
+  }
+  function windowPanel(
+    group,
+    x,
+    y,
+    z,
+    width = 1,
+    height = 1.15,
+    arched = false,
+  ) {
+    box(x, y, z, width + 0.15, height + 0.15, 0.1, surfaces.darkWood, group);
+    box(x, y, z + 0.06, width, height, 0.035, surfaces.glass, group);
+    for (const side of [-1, 1])
+      box(
+        x + side * width * 0.48,
+        y,
+        z + 0.1,
+        0.055,
+        height,
+        0.06,
+        surfaces.wood,
+        group,
+      );
+    for (const shift of [-0.25, 0.25])
+      box(
+        x + width * shift,
+        y,
+        z + 0.1,
+        0.038,
+        height,
+        0.045,
+        surfaces.wood,
+        group,
+      );
+    box(x, y - 0.14, z + 0.12, width, 0.04, 0.045, surfaces.wood, group);
+    box(
+      x,
+      y - height / 2 - 0.09,
+      z + 0.03,
+      width + 0.25,
+      0.11,
+      0.25,
+      surfaces.darkWood,
+      group,
+    );
+    if (arched)
+      archFrame(
+        group,
+        x,
+        y - height / 2,
+        z + 0.1,
+        width + 0.2,
+        height + 0.25,
+        surfaces.wood,
+      );
+  }
+  function batchArtwork(group, fadeable = true) {
+    group.updateMatrixWorld(true);
+    const inverse = group.matrixWorld.clone().invert(),
+      staticObjects = [],
+      moving = [],
+      batches = new Map(),
+      copies = new Map();
+    group.traverse((object) => {
+      if (!object.isMesh && !object.isLineSegments) return;
+      let ancestor = object.parent,
+        isMoving = false;
+      while (ancestor && ancestor !== group) {
+        if (ancestor.userData.isMotionRoot) isMoving = true;
+        ancestor = ancestor.parent;
+      }
+      if (isMoving) {
+        moving.push(object);
+        return;
+      }
+      staticObjects.push(object);
+      const key = object.isLineSegments
+        ? "line:" + object.material.opacity
+        : object.material.uuid + ":" + (object.userData.id || "");
+      if (!batches.has(key))
+        batches.set(key, {
+          material: object.material,
+          id: object.userData.id,
+          line: object.isLineSegments,
+          geometries: [],
+        });
+      const geometry = object.geometry.index
+        ? object.geometry.toNonIndexed()
+        : object.geometry.clone();
+      geometry.applyMatrix4(
+        new T.Matrix4().multiplyMatrices(inverse, object.matrixWorld),
+      );
+      batches.get(key).geometries.push(geometry);
+    });
+    const own = (material) => {
+      if (!fadeable) return material;
+      if (!copies.has(material)) {
+        const copy = copyInk(material);
+        copy.userData.owned = true;
+        copies.set(material, copy);
+      }
+      return copies.get(material);
+    };
+    const objects = [...moving];
+    for (const object of moving) {
+      object.material = own(object.material);
+      object.userData.baseOpacity = object.material.opacity;
+    }
+    const oldSet = new Set(staticObjects);
+    hits = hits.filter((object) => !oldSet.has(object));
+    for (const object of staticObjects) {
+      if (object.userData.architecture) {
+        object.material = own(object.material);
+        object.visible = false;
+        continue;
+      }
+      object.removeFromParent();
+      if (object.geometry !== cube && object.geometry !== sphere)
+        object.geometry.dispose();
+    }
+    for (const batch of batches.values()) {
+      const geometry = mergeGeometries(batch.geometries, false);
+      for (const source of batch.geometries) source.dispose();
+      if (!geometry) throw Error("Cannot batch painted geometry");
+      const mat = own(batch.material),
+        object = batch.line
+          ? new T.LineSegments(geometry, mat)
+          : new T.Mesh(geometry, mat);
+      object.name = batch.line ? "batched-ink" : "batched-facade";
+      object.castShadow = !batch.line && !mat.userData.signFace;
+      object.receiveShadow = true;
+      object.userData.baseOpacity = mat.opacity;
+      object.userData.id = batch.id;
+      group.add(object);
+      objects.push(object);
+      if (batch.id) hits.push(object);
+    }
+    return objects;
+  }
   function building(
     x,
     z,
@@ -313,121 +508,170 @@ export function createWorld(root, onVisit) {
     text = "茶",
     id = "tea",
     palette = palettes[0],
+    options = {},
   ) {
     const group = new T.Group();
+    group.name = "house-" + text;
     town.add(group);
     group.position.set(x, 0, z);
-    box(0, 0.42, 0, w + 0.65, 0.3, d + 0.65, surfaces.stone, group);
-    box(0, 0.62, 0, w + 0.12, 0.12, d + 0.12, surfaces.darkWood, group);
-    box(0, 1.87, 0, w, 2.48, d, surfaces.wall(palette.wall), group);
-    for (const side of [-1, 1]) {
-      for (const front of [-1, 1]) {
-        const column = mesh(
-          new T.CylinderGeometry(0.115, 0.14, 2.7, 16),
-          surfaces.wood,
-          side * (w / 2 - 0.12),
-          1.91,
-          front * (d / 2 + 0.035),
-          group,
-        );
-        mesh(
-          new T.CylinderGeometry(0.17, 0.18, 0.22, 16),
-          surfaces.stone,
-          column.position.x,
-          0.68,
-          column.position.z,
-          group,
-        );
-      }
-      box(
-        0,
-        3.14,
-        side * (d / 2 + 0.08),
-        w + 0.22,
-        0.2,
-        0.2,
-        surfaces.darkWood,
-        group,
-      );
-      box(side * (w / 2 + 0.02), 1.85, 0, 0.1, 0.14, d, surfaces.wood, group);
-    }
-    // Recessed double doors, raised panels and small brass pulls.
-    box(0, 1.61, d / 2 + 0.045, 1.25, 2.16, 0.09, surfaces.darkWood, group);
-    for (const side of [-1, 1]) {
-      box(
-        side * 0.29,
-        1.56,
-        d / 2 + 0.12,
-        0.55,
-        1.94,
-        0.07,
-        surfaces.wood,
-        group,
-      );
-      for (const y of [1.02, 1.81])
-        box(
-          side * 0.29,
-          y,
-          d / 2 + 0.17,
-          0.43,
-          0.64,
-          0.035,
-          surfaces.darkWood,
-          group,
-        );
-      const handle = mesh(
-        new T.TorusGeometry(0.047, 0.013, 8, 16),
-        surfaces.bronze,
-        side * 0.12,
-        1.59,
-        d / 2 + 0.22,
-        group,
-      );
-    }
-    for (const side of [-1, 1]) {
-      const wx = side * w * 0.33;
-      box(wx, 2.03, d / 2 + 0.055, 0.98, 1.23, 0.06, surfaces.darkWood, group);
-      box(wx, 2.03, d / 2 + 0.095, 0.84, 1.08, 0.035, surfaces.glass, group);
-      for (let bar = -1; bar <= 1; bar++)
-        box(
-          wx + bar * 0.27,
-          2.03,
-          d / 2 + 0.15,
-          0.034,
-          1.1,
-          0.045,
-          surfaces.wood,
-          group,
-        );
-      for (const y of [1.67, 2.04, 2.4])
-        box(wx, y, d / 2 + 0.165, 0.87, 0.032, 0.05, surfaces.wood, group);
-      box(wx, 1.39, d / 2 + 0.11, 1.04, 0.11, 0.21, surfaces.wood, group);
-    }
+    const station = text === "山江站";
+    const floors =
+      options.floors ||
+      (["茶馆", "客栈", "书店", "学堂", "家", "公司", "照相馆"].includes(text)
+        ? 2
+        : 1);
+    const wallHeight = floors * 2.55 + 0.36,
+      eaveY = 0.48 + wallHeight,
+      roofOffset = eaveY - 3.23;
+    const plaster = surfaces.wall(palette.wall);
+    const roofMaterial = surfaces.roof;
+    const body = box(
+      0,
+      0.48 + wallHeight / 2,
+      0,
+      w,
+      wallHeight,
+      d,
+      plaster,
+      group,
+    );
     const roof = mesh(
-      roofGeometry(w + 1.4, d + 1.25),
-      surfaces.roof,
+      roofGeometry(w + 1.05, d + 1.0),
+      roofMaterial,
       0,
-      0,
+      roofOffset,
       0,
       group,
     );
-    roof.material.side = T.DoubleSide;
-    // Solid eaves and individual ridge caps catch light at the roof silhouette.
-    for (const front of [-1, 1]) {
+    inkEdges(T, roof, 0.5, 42);
+    body.userData.architecture = roof.userData.architecture = group;
+    occluders.push(body, roof);
+    box(0, 0.42, 0, w + 0.35, 0.2, d + 0.35, surfaces.stone, group);
+    // Painted timber frame, deep sills and restrained masonry around openings.
+    for (const side of [-1, 1]) {
+      for (const front of [-1, 1])
+        box(
+          side * (w / 2 - 0.08),
+          0.52 + wallHeight / 2,
+          front * (d / 2 + 0.025),
+          0.13,
+          wallHeight,
+          0.13,
+          surfaces.darkWood,
+          group,
+        );
+      for (let floor = 0; floor <= floors; floor++)
+        box(
+          0,
+          0.55 + floor * 2.55,
+          side * (d / 2 + 0.045),
+          w + 0.08,
+          0.12,
+          0.12,
+          surfaces.darkWood,
+          group,
+        );
+    }
+    const front = d / 2 + 0.055;
+    box(0, 1.64, front, 1.45, 2.2, 0.11, surfaces.darkWood, group);
+    box(0, 1.67, front + 0.065, 1.2, 1.96, 0.035, surfaces.glass, group);
+    for (const side of [-1, 1]) {
+      box(
+        side * 0.29,
+        1.62,
+        front + 0.11,
+        0.055,
+        1.95,
+        0.04,
+        surfaces.wood,
+        group,
+      );
+      box(
+        side * 0.34,
+        0.98,
+        front + 0.14,
+        0.5,
+        0.48,
+        0.045,
+        surfaces.darkWood,
+        group,
+      );
+      const handle = mesh(
+        new T.TorusGeometry(0.047, 0.012, 6, 12),
+        surfaces.bronze,
+        side * 0.12,
+        1.6,
+        front + 0.18,
+        group,
+      );
+    }
+    archFrame(group, 0, 0.56, front + 0.1, 1.5, 2.25, surfaces.wood);
+    for (const side of [-1, 1])
+      windowPanel(group, side * w * 0.335, 1.86, front, 0.9, 1.22, station);
+    if (floors === 2) {
+      for (const side of [-1, 1])
+        windowPanel(group, side * w * 0.25, 4.35, front, 1.05, 1.35);
+      box(0, 3.32, front + 0.46, w - 0.4, 0.13, 0.95, surfaces.darkWood, group);
+      for (const side of [-1, 1]) {
+        box(
+          side * (w / 2 - 0.25),
+          3.85,
+          front + 0.8,
+          0.08,
+          1.05,
+          0.08,
+          surfaces.darkWood,
+          group,
+        );
+        box(
+          side * (w / 2 - 0.25),
+          3.85,
+          front + 0.38,
+          0.055,
+          0.065,
+          0.85,
+          surfaces.darkWood,
+          group,
+        );
+      }
+      box(0, 3.99, front + 0.8, w - 0.4, 0.075, 0.07, surfaces.wood, group);
+      for (let i = 0; i < 8; i++)
+        box(
+          (i / 7 - 0.5) * (w - 0.65),
+          3.69,
+          front + 0.8,
+          0.045,
+          0.6,
+          0.045,
+          surfaces.darkWood,
+          group,
+        );
+      for (const side of [-1, 1])
+        plantPot(side * (w / 2 - 0.6), 3.38, front + 0.43, 0.65, group);
+    }
+    // Facade return windows make rotating the camera reveal a complete building.
+    for (const side of [-1, 1]) {
+      const returns = new T.Group();
+      returns.rotation.y = (side * Math.PI) / 2;
+      returns.position.x = side * (w / 2 + 0.025);
+      group.add(returns);
+      for (let floor = 0; floor < floors; floor++)
+        windowPanel(returns, 0, 1.85 + floor * 2.55, 0, 0.95, 1.18);
+    }
+    for (const frontSide of [-1, 1]) {
       const edge = [];
       for (let i = 0; i <= 12; i++) {
-        const px = (i / 12 - 0.5) * (w + 1.4),
-          v = Math.abs(px) / ((w + 1.4) / 2);
+        const px = (i / 12 - 0.5) * (w + 1.05);
         edge.push(
           new T.Vector3(
             px,
-            3.23 + 0.17 * Math.pow(v, 6),
-            (front * (d + 1.25)) / 2,
+            eaveY + 0.1 + 0.15 * Math.pow(Math.abs(px) / ((w + 1.05) / 2), 6),
+            (frontSide * (d + 1)) / 2,
           ),
         );
       }
       mesh(
-        new T.TubeGeometry(new T.CatmullRomCurve3(edge), 24, 0.085, 8, false),
+        new T.TubeGeometry(new T.CatmullRomCurve3(edge), 24, 0.065, 6, false),
         surfaces.darkWood,
         0,
         0,
@@ -435,22 +679,140 @@ export function createWorld(root, onVisit) {
         group,
       );
     }
-    for (let i = 0; i < Math.ceil(w / 0.32); i++) {
-      const px = -w / 2 + 0.16 + i * 0.32;
+    for (let i = 0; i < Math.ceil(w / 0.42); i++) {
       const cap = mesh(
-        new T.CylinderGeometry(0.105, 0.105, 0.34, 12, 1, false, 0, Math.PI),
+        new T.CylinderGeometry(0.085, 0.085, 0.44, 10, 1, false, 0, Math.PI),
         surfaces.roof,
-        px,
-        4.49,
+        -w / 2 + 0.2 + i * 0.42,
+        4.49 + roofOffset,
         0,
         group,
       );
       cap.rotation.z = Math.PI / 2;
     }
-    for (const side of [-1, 1])
-      lantern(side * (w / 2 - 0.45), 2.87, d / 2 + 0.42, group);
-    label(text, x, 2.71, z + d / 2 + 0.24, id, 0.65);
-    obstacles.push({ x, z, w: w + 0.5, d: d + 0.5 });
+    label(text, 0, 2.91, front + 0.22, id, station ? 0.77 : 0.57, group);
+    if (!station && !options.quiet) {
+      const stripes = 6,
+        awningWidth = w - 0.65;
+      for (let i = 0; i < stripes; i++) {
+        const awning = box(
+          ((i + 0.5) / stripes) * awningWidth - awningWidth / 2,
+          2.72,
+          front + 0.67,
+          awningWidth / stripes,
+          0.045,
+          1.04,
+          surfaces.fabric(i % 2 ? 0xddd3bb : 0x80978c),
+          group,
+        );
+        awning.rotation.x = 0.13;
+        box(
+          ((i + 0.5) / stripes) * awningWidth - awningWidth / 2,
+          2.6,
+          front + 1.17,
+          awningWidth / stripes,
+          0.21,
+          0.035,
+          surfaces.fabric(i % 2 ? 0xddd3bb : 0x80978c),
+          group,
+        );
+      }
+    }
+    for (const side of [-1, 1]) {
+      lantern(side * (w / 2 - 0.45), 2.76, front + 0.36, group);
+      if (!options.quiet)
+        plantPot(side * (w / 2 + 0.22), 0.32, front + 0.14, 0.85, group);
+    }
+    if (station) {
+      const clock = mesh(
+        new T.CylinderGeometry(0.28, 0.28, 0.055, 24),
+        surfaces.signWood,
+        w * 0.42,
+        2.72,
+        front + 0.14,
+        group,
+      );
+      clock.rotation.x = Math.PI / 2;
+      box(
+        w * 0.42,
+        2.77,
+        front + 0.18,
+        0.024,
+        0.18,
+        0.015,
+        surfaces.iron,
+        group,
+      );
+      const hand = box(
+        w * 0.42 + 0.06,
+        2.7,
+        front + 0.18,
+        0.16,
+        0.023,
+        0.016,
+        surfaces.iron,
+        group,
+      );
+      hand.rotation.z = -0.35;
+      box(
+        -w * 0.3,
+        1.45,
+        front + 0.18,
+        0.83,
+        1.12,
+        0.08,
+        surfaces.darkWood,
+        group,
+      );
+      box(
+        -w * 0.3,
+        1.45,
+        front + 0.23,
+        0.72,
+        0.99,
+        0.02,
+        surfaces.signWood,
+        group,
+      );
+      for (let row = 0; row < 7; row++)
+        box(
+          -w * 0.3,
+          1.8 - row * 0.1,
+          front + 0.25,
+          0.57,
+          0.012,
+          0.012,
+          surfaces.solid(0x7a8b83),
+          group,
+        );
+      label("时刻表", -w * 0.3, 2.18, front + 0.26, null, 0.23, group);
+      box(0, 0.43, front + 0.3, 2.5, 0.18, 0.62, surfaces.stone, group);
+    }
+    if (text === "书店") {
+      box(
+        w * 0.34,
+        0.72,
+        front + 0.55,
+        1.1,
+        0.12,
+        0.46,
+        surfaces.darkWood,
+        group,
+      );
+      for (let i = 0; i < 8; i++)
+        box(
+          w * 0.34 + (i - 3.5) * 0.115,
+          0.99,
+          front + 0.54,
+          0.09,
+          0.4 + (i % 3) * 0.035,
+          0.26,
+          surfaces.solid([0x8b9f91, 0xc8ac78, 0xae7e64][i % 3]),
+          group,
+        );
+    }
+    architectures.push({ group, meshes: batchArtwork(group), alpha: 1 });
+    if (!options.background) obstacles.push({ x, z, w: w + 0.5, d: d + 0.5 });
     return group;
   }
   function tree(x, z, size = 1, color = 0x769569) {
@@ -543,8 +905,11 @@ export function createWorld(root, onVisit) {
     town.add(group);
     group.position.set(x, 0.32, z);
     group.name = id || "passerby";
+    group.userData.role = color === 0xcf8c4b ? "player" : id || "visitor";
     const kind =
-      id === "friend" || id === "resident"
+      id === "friend" ||
+      id === "resident" ||
+      (!id && [0x718b79, 0x497b7b].includes(color))
         ? "lin"
         : id === "tea" || id === "guard"
           ? "lo"
@@ -700,6 +1065,9 @@ export function createWorld(root, onVisit) {
         box(x + end * 3.88, 0.87, 8, 0.25, 0.22, 0.7, surfaces.iron, group);
       }
     }
+    group.position.x = -22;
+    group.rotation.y = Math.PI / 2;
+    batchArtwork(group, false);
     animated.push({ kind: "train", o: group });
   }
   function table(x, z) {
@@ -911,8 +1279,8 @@ export function createWorld(root, onVisit) {
       scene.fog.color.setHex(0xbac1bc);
       sunlight.color.setHex(0xffd69b);
     } else {
-      scene.fog.color.setHex(0xb8cfc5);
-      sunlight.color.setHex(0xffedc6);
+      scene.fog.color.setHex(0xc3c8c6);
+      sunlight.color.setHex(0xffe7c6);
     }
   }
   const places = {
@@ -1072,7 +1440,7 @@ export function createWorld(root, onVisit) {
         o.material.dispose();
       }
       if (o.material?.userData?.owned) o.material.dispose();
-      if (o.isSkinnedMesh) o.skeleton.dispose();
+      if (o.isSkinnedMesh && !o.userData.characterOutline) o.skeleton.dispose();
     });
     town = new T.Group();
     scene.add(town);
@@ -1083,47 +1451,49 @@ export function createWorld(root, onVisit) {
     hits = [];
     obstacles = [];
     animated = [];
+    architectures = [];
+    occluders = [];
+    occlusionKey = "";
+    covering = new Set();
     route = [];
     arrival = null;
     time = 0;
     const pal = palettes[index % palettes.length];
-    box(0, -0.6, -2, 34, 1.4, 28, surfaces.ground);
-    box(0, 0.12, 0, 24, 0.4, 19, surfaces.stone);
-    box(0, 0.34, 0, 21, 0.035, 5, surfaces.stone);
-    box(4, 0.34, -4, 4, 0.035, 13, surfaces.stone);
-    for (let i = 0; i < 28; i++) {
-      const x = -10 + (i % 7) * 3.3,
-        z = -8 + Math.floor(i / 7) * 4.8;
-      box(x, 0.35, z, 1.5, 0.03, 0.035, surfaces.stone);
-    }
-    // Canal and embankment are raised separately to prevent coplanar surfaces.
-    box(14, -0.05, -1, 3.8, 0.2, 27, surfaces.water);
-    for (let z = -13; z < 13; z += 2)
-      box(11.9, 0.3, z, 0.32, 0.7, 1.8, surfaces.stone);
-    box(14, 0.7, -1, 4, 0.24, 3, surfaces.wood);
-    for (const z of [-2.3, 0.3]) {
-      box(14, 1.23, z, 4, 0.13, 0.12, surfaces.darkWood);
-      for (let x = 12.3; x < 16; x += 1)
-        box(x, 1, z, 0.13, 0.9, 0.13, surfaces.wood);
-    }
+    // Continuous streets extend past the camera; no floating landscape plinth.
+    box(0, 0.12, 0, 150, 0.4, 150, surfaces.stone);
+    // The canal is a real channel along the far east street.
+    box(14, 0.14, -1, 3.4, 0.05, 44, surfaces.water);
+    for (const x of [12.1, 15.9]) box(x, 0.3, -1, 0.3, 0.4, 44, surfaces.stone);
+    box(14, 0.41, -1, 4.1, 0.18, 3, surfaces.wood);
     if (index === 0) {
       places.tea = [-3, -5.4];
       places.friend = [6, -3];
       places.guard = [-5, 3];
-      for (let z of [7.2, 8.8]) box(0, 0.35, z, 35, 0.15, 0.12, 0x666957);
-      for (let x = -17; x < 17; x++) box(x, 0.22, 8, 0.18, 0.11, 2.5, 0x82775e);
+      for (const x of [-14.8, -13.2])
+        box(x, 0.38, -1, 0.1, 0.13, 55, surfaces.iron);
+      for (let z = -28; z < 28; z++)
+        box(-14, 0.3, z, 2.6, 0.12, 0.16, surfaces.darkWood);
       train();
-      building(-7, -4, 5, 3.6, "山江站", "guard", pal);
+      building(-7.7, -4.8, 7, 3.6, "山江站", "guard", pal);
       building(-5, -9, 5, 3.6, "茶馆", "tea", palettes[1]);
       building(5, -9, 4, 3.5, "客栈", "friend", pal);
       for (const [id, x, text] of [
         ["entry", -1, "入口"],
         ["exit", 4, "出口"],
       ]) {
-        for (const side of [-1, 1])
-          box(x + side * 1.5, 1.8, -1, 0.22, 3, 0.25, surfaces.wood);
-        box(x, 3.5, -1, 3.5, 0.25, 0.85, surfaces.roof);
-        label(text, x, 3, -1, id, 0.85);
+        for (const side of [-1, 1]) {
+          box(x + side * 1.3, 1.15, -1, 0.42, 1.66, 0.62, surfaces.plaster);
+          obstacles.push({ x: x + side * 1.3, z: -1, w: 0.42, d: 0.62 });
+        }
+        mesh(
+          new T.TorusGeometry(1.3, 0.23, 8, 24, Math.PI),
+          surfaces.plaster,
+          x,
+          1.96,
+          -1,
+        );
+        box(x, 3.52, -1, 3.35, 0.14, 0.84, surfaces.roof);
+        label(text, x, 3.27, -0.64, id, 0.65);
       }
     } else {
       const texts = [
@@ -1243,24 +1613,49 @@ export function createWorld(root, onVisit) {
     }
     table(-7, -0.8);
     table(8, 3.5);
-    for (let i = 0; i < 18; i++) {
-      const x = -14 + (i % 9) * 3.3,
-        z = i < 9 ? -13 : 12;
-      tree(x, z, 0.7 + (i % 3) * 0.2, [pal.leaf, 0x6e7c48, 0x496849][i % 3]);
-    }
-    tree(-11, -1, 0.8, pal.leaf);
-    tree(10, -6, 0.8, pal.leaf);
-    for (let i = 0; i < 9; i++) {
-      const stone = orb(-10 + i * 3.5, -0.3, -16, 3 + (i % 3), 0x819d8d);
-      stone.scale.y = 1.7;
-    }
-    for (let i = 0; i < 8; i++) {
-      const cloud = orb(-28 + i * 8, 11 + (i % 3), -23, 2.8, 0xe1e6d5);
-      cloud.scale.set(2.3, 0.25, 1);
-      animated.push({ kind: "cloud", o: cloud, x: cloud.position.x, phase: i });
-    }
+    drawNeighborhood(
+      T,
+      {
+        town,
+        box,
+        mesh,
+        orb,
+        building,
+        tree,
+        plantPot,
+        surfaces,
+        animated,
+        obstacles,
+        palettes,
+        batchArtwork,
+      },
+      index,
+    );
     player = person(-8, 3, 0xcf8c4b);
     player.name = "player";
+    const suitcase = box(
+      0.42,
+      0.3,
+      -0.08,
+      0.3,
+      0.53,
+      0.2,
+      surfaces.solid(0xb77b57),
+      player,
+    );
+    for (const side of [-1, 1])
+      orb(0.42 + side * 0.09, 0.06, -0.08, 0.045, surfaces.iron, player);
+    box(0.42, 0.69, -0.08, 0.19, 0.29, 0.025, surfaces.iron, player);
+    const halo = mesh(
+      new T.RingGeometry(0.38, 0.41, 40),
+      surfaces.solid(0xf4dc99),
+      0,
+      0.015,
+      0,
+      player,
+    );
+    halo.rotation.x = -Math.PI / 2;
+    halo.castShadow = false;
 
     marker = mesh(new T.RingGeometry(0.48, 0.63, 36), 0xd69c48, -5, 0.39, 3);
     marker.rotation.x = -Math.PI / 2;
@@ -1275,6 +1670,7 @@ export function createWorld(root, onVisit) {
     focus.set(-1, 0, -1);
     wanted = 0.65;
     angle = 0.65;
+    town.updateMatrixWorld(true);
   }
   // Grid paths keep the character outside building footprints.
   const cell = 0.6,
@@ -1501,7 +1897,7 @@ export function createWorld(root, onVisit) {
     );
     camera.position.set(
       focus.x + Math.sin(angle) * 30,
-      26,
+      35,
       focus.z + Math.cos(angle) * 30,
     );
     camera.lookAt(focus);
@@ -1520,14 +1916,60 @@ export function createWorld(root, onVisit) {
         root.clientWidth,
         root.clientHeight,
         0,
-        root.clientHeight * (shortScreen ? 0.1 : 0.14),
+        root.clientHeight * (shortScreen ? 0.11 : 0.14),
         root.clientWidth,
         root.clientHeight,
       );
     } else camera.clearViewOffset();
+    // Recast only after the player or camera moves. Static facades need no per-frame work.
+    const nextOcclusionKey = [
+      player.position.x,
+      player.position.z,
+      camera.position.x,
+      camera.position.z,
+    ]
+      .map((n) => n.toFixed(2))
+      .join(":");
+    if (nextOcclusionKey !== occlusionKey) {
+      occlusionKey = nextOcclusionKey;
+      const eyeTarget = new T.Vector3(
+        player.position.x,
+        player.position.y + 1.15,
+        player.position.z,
+      );
+      const eyeDirection = eyeTarget.clone().sub(camera.position),
+        eyeDistance = eyeDirection.length();
+      occlusionRay.set(camera.position, eyeDirection.normalize());
+      covering = new Set(
+        occlusionRay
+          .intersectObjects(occluders, false)
+          .filter((hit) => hit.distance < eyeDistance - 0.35)
+          .map((hit) => hit.object.userData.architecture),
+      );
+    }
+    for (const art of architectures) {
+      const target = covering.has(art.group) ? 0.16 : 1;
+      if (art.alpha === target) continue;
+      art.alpha = reduced ? target : T.MathUtils.damp(art.alpha, target, 8, dt);
+      if (Math.abs(art.alpha - target) < 0.002) art.alpha = target;
+      for (const object of art.meshes) {
+        const mat = object.material;
+        mat.opacity = art.alpha * (object.userData.baseOpacity ?? 1);
+        const transparent =
+          Boolean(mat.userData.signFace) ||
+          art.alpha < 0.985 ||
+          object.isLineSegments;
+        if (mat.transparent !== transparent) {
+          mat.transparent = transparent;
+          mat.needsUpdate = true;
+        }
+        mat.depthWrite = !transparent;
+        object.castShadow = art.alpha > 0.8 && !object.isLineSegments;
+      }
+    }
     for (const a of animated) {
       if (a.kind === "train")
-        a.o.position.x = reduced
+        a.o.position.z = reduced
           ? 0
           : Math.min(75, Math.max(0, time - 7) * 1.5);
       if (reduced) continue;
@@ -1561,6 +2003,21 @@ export function createWorld(root, onVisit) {
       }
       if (a.kind === "cloud")
         a.o.position.x = a.x + Math.sin(time * 0.035 + a.phase) * 2;
+      if (a.kind === "cloth")
+        a.o.rotation.z = Math.sin(time * 0.8 + a.phase) * 0.035;
+      if (a.kind === "leaf") {
+        const drift = (time * 0.32 + a.phase * 0.47) % 4;
+        a.o.position.set(
+          a.x + Math.sin(time * 0.45 + a.phase) * 0.6,
+          4.3 - drift,
+          a.z + Math.sin(time * 0.22 + a.phase) * 0.7,
+        );
+        a.o.rotation.set(
+          time * 0.4 + a.phase,
+          time * 0.3,
+          Math.sin(time * 0.7 + a.phase) * 0.6,
+        );
+      }
       if (a.kind === "lantern")
         a.o.rotation.z = Math.sin(time * 1.2 + a.phase) * 0.055;
     }
